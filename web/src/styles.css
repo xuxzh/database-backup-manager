@@ -311,6 +311,21 @@ td {
   background: #dbeafe;
 }
 
+.danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.danger:hover:not(:disabled) {
+  background: #fecaca;
+}
+
+.action-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .empty-state {
   margin: 0;
   padding: 20px;

@@ -71,6 +71,23 @@ impl Repository {
         row_database_connection(row)
     }
 
+    pub async fn delete_database_connection(&self, id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query("DELETE FROM database_connections WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn count_jobs_by_source(&self, source_id: &str) -> anyhow::Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM backup_jobs WHERE database_connection_id = ?")
+                .bind(source_id)
+                .fetch_one(&self.pool)
+                .await?,
+        )
+    }
+
     pub async fn create_backup_target(
         &self,
         input: UpsertBackupTarget,
@@ -126,6 +143,23 @@ impl Repository {
             .fetch_one(&self.pool)
             .await?;
         row_backup_target(row)
+    }
+
+    pub async fn delete_backup_target(&self, id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query("DELETE FROM backup_targets WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn count_jobs_by_target(&self, target_id: &str) -> anyhow::Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM backup_jobs WHERE backup_target_id = ?")
+                .bind(target_id)
+                .fetch_one(&self.pool)
+                .await?,
+        )
     }
 
     pub async fn create_backup_job(&self, input: UpsertBackupJob) -> anyhow::Result<BackupJob> {
@@ -186,6 +220,14 @@ impl Repository {
             .fetch_one(&self.pool)
             .await?;
         row_backup_job(row)
+    }
+
+    pub async fn delete_backup_job(&self, id: &str) -> anyhow::Result<bool> {
+        let result = sqlx::query("DELETE FROM backup_jobs WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn create_run(&self, job_id: &str) -> anyhow::Result<BackupRun> {

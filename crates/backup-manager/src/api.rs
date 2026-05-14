@@ -5,7 +5,7 @@ use axum::{
     extract::{FromRef, Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -47,10 +47,13 @@ pub fn router(state: AppState) -> Router {
         .route("/schemas/targets", get(target_schemas))
         .route("/dashboard", get(dashboard))
         .route("/sources", get(list_sources).post(create_source))
+        .route("/sources/{id}", delete(delete_source))
         .route("/sources/test", post(test_source))
         .route("/targets", get(list_targets).post(create_target))
+        .route("/targets/{id}", delete(delete_target))
         .route("/targets/test", post(test_target))
         .route("/jobs", get(list_jobs).post(create_job))
+        .route("/jobs/{id}", delete(delete_job))
         .route("/jobs/{id}/run", post(run_job))
         .route("/runs", get(list_runs))
         .route("/runs/{id}/logs", get(list_run_logs))
@@ -147,6 +150,23 @@ async fn test_source(
     Ok(Json(json!({ "ok": true })))
 }
 
+async fn delete_source(
+    _auth: Authenticated,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    if state.repository.count_jobs_by_source(&id).await? > 0 {
+        return Err(ApiError::conflict(
+            "该数据源仍被备份任务引用，请先删除相关任务",
+        ));
+    }
+    if state.repository.delete_database_connection(&id).await? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("数据源不存在"))
+    }
+}
+
 async fn list_targets(
     _auth: Authenticated,
     State(state): State<AppState>,
@@ -184,6 +204,23 @@ async fn test_target(
     Ok(Json(json!({ "ok": true })))
 }
 
+async fn delete_target(
+    _auth: Authenticated,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    if state.repository.count_jobs_by_target(&id).await? > 0 {
+        return Err(ApiError::conflict(
+            "该备份目标仍被备份任务引用，请先删除相关任务",
+        ));
+    }
+    if state.repository.delete_backup_target(&id).await? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("备份目标不存在"))
+    }
+}
+
 async fn list_jobs(
     _auth: Authenticated,
     State(state): State<AppState>,
@@ -199,6 +236,19 @@ async fn create_job(
     let job = state.repository.create_backup_job(input).await?;
     state.scheduler.reload().await?;
     Ok(Json(job))
+}
+
+async fn delete_job(
+    _auth: Authenticated,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    if state.repository.delete_backup_job(&id).await? {
+        state.scheduler.reload().await?;
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("备份任务不存在"))
+    }
 }
 
 async fn run_job(
@@ -237,6 +287,22 @@ impl ApiError {
         Self {
             status: StatusCode::UNAUTHORIZED,
             code: "UNAUTHORIZED",
+            message: message.to_string(),
+        }
+    }
+
+    fn not_found(message: &str) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "NOT_FOUND",
+            message: message.to_string(),
+        }
+    }
+
+    fn conflict(message: &str) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code: "CONFLICT",
             message: message.to_string(),
         }
     }

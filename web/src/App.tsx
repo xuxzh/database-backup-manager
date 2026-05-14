@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { ApiError, apiRequest } from "./api/client";
 import type {
   BackupJob,
@@ -225,6 +226,36 @@ function App() {
     }
   }
 
+  async function deleteItem(path: string, successMessage: string) {
+    setIsSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      await request<void>(path, { method: "DELETE" });
+      setNotice(successMessage);
+      await refresh();
+    } catch (deleteError) {
+      setError(errorMessage(deleteError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function deleteSource(source: DatabaseConnection) {
+    if (!window.confirm(`确认删除数据源「${source.name}」？`)) return;
+    await deleteItem(`/sources/${source.id}`, "数据源已删除");
+  }
+
+  async function deleteTarget(target: BackupTarget) {
+    if (!window.confirm(`确认删除备份目标「${target.name}」？`)) return;
+    await deleteItem(`/targets/${target.id}`, "备份目标已删除");
+  }
+
+  async function deleteJob(job: BackupJob) {
+    if (!window.confirm(`确认删除备份任务「${job.name}」？`)) return;
+    await deleteItem(`/jobs/${job.id}`, "备份任务已删除");
+  }
+
   async function loadRunLogs(runId: string) {
     setError("");
     setSelectedRunId(runId);
@@ -286,6 +317,7 @@ function App() {
           <SourcesPanel
             isSubmitting={isSubmitting}
             items={data.sources}
+            onDelete={deleteSource}
             onSubmit={handleCreateSource}
           />
         )}
@@ -293,6 +325,7 @@ function App() {
           <TargetsPanel
             isSubmitting={isSubmitting}
             items={data.targets}
+            onDelete={deleteTarget}
             onSubmit={handleCreateTarget}
           />
         )}
@@ -302,6 +335,7 @@ function App() {
             jobs={data.jobs}
             sources={data.sources}
             targets={data.targets}
+            onDelete={deleteJob}
             onRun={runJob}
             onSubmit={handleCreateJob}
           />
@@ -394,10 +428,12 @@ function DashboardPanel({ dashboard }: { dashboard: DashboardStats | null }) {
 function SourcesPanel({
   isSubmitting,
   items,
+  onDelete,
   onSubmit,
 }: {
   isSubmitting: boolean;
   items: DatabaseConnection[];
+  onDelete: (source: DatabaseConnection) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
@@ -425,7 +461,7 @@ function SourcesPanel({
       </form>
       <DataTable
         emptyText="暂无数据源"
-        headers={["名称", "类型", "主机", "端口", "用户", "默认数据库"]}
+        headers={["名称", "类型", "主机", "端口", "用户", "默认数据库", "操作"]}
         rows={items.map((item) => [
           item.name,
           item.dbType,
@@ -433,6 +469,14 @@ function SourcesPanel({
           String(item.port),
           item.username,
           item.databaseName || "",
+          <button
+            className="danger"
+            type="button"
+            disabled={isSubmitting}
+            onClick={() => onDelete(item)}
+          >
+            删除
+          </button>,
         ])}
       />
     </section>
@@ -442,10 +486,12 @@ function SourcesPanel({
 function TargetsPanel({
   isSubmitting,
   items,
+  onDelete,
   onSubmit,
 }: {
   isSubmitting: boolean;
   items: BackupTarget[];
+  onDelete: (target: BackupTarget) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
@@ -473,7 +519,7 @@ function TargetsPanel({
       </form>
       <DataTable
         emptyText="暂无备份目标"
-        headers={["名称", "类型", "主机", "端口", "用户", "远端目录"]}
+        headers={["名称", "类型", "主机", "端口", "用户", "远端目录", "操作"]}
         rows={items.map((item) => [
           item.name,
           item.targetType,
@@ -481,6 +527,14 @@ function TargetsPanel({
           String(item.port),
           item.username,
           item.baseDir,
+          <button
+            className="danger"
+            type="button"
+            disabled={isSubmitting}
+            onClick={() => onDelete(item)}
+          >
+            删除
+          </button>,
         ])}
       />
     </section>
@@ -492,6 +546,7 @@ function JobsPanel({
   jobs,
   sources,
   targets,
+  onDelete,
   onRun,
   onSubmit,
 }: {
@@ -499,6 +554,7 @@ function JobsPanel({
   jobs: BackupJob[];
   sources: DatabaseConnection[];
   targets: BackupTarget[];
+  onDelete: (job: BackupJob) => void;
   onRun: (jobId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -559,9 +615,17 @@ function JobsPanel({
                   <td>{targetNames[job.backupTargetId] || job.backupTargetId}</td>
                   <td>{job.schedule}</td>
                   <td>{job.enabled ? "是" : "否"}</td>
-                  <td>
+                  <td className="action-cell">
                     <button type="button" onClick={() => onRun(job.id)} disabled={isSubmitting}>
                       立即执行
+                    </button>
+                    <button
+                      className="danger"
+                      type="button"
+                      onClick={() => onDelete(job)}
+                      disabled={isSubmitting}
+                    >
+                      删除
                     </button>
                   </td>
                 </tr>
@@ -685,7 +749,7 @@ function DataTable({
 }: {
   emptyText: string;
   headers: string[];
-  rows: string[][];
+  rows: ReactNode[][];
 }) {
   return (
     <div className="table-wrap">
@@ -700,9 +764,9 @@ function DataTable({
           </thead>
           <tbody>
             {rows.map((row, rowIndex) => (
-              <tr key={row.join("-") || rowIndex}>
+              <tr key={rowIndex}>
                 {row.map((cell, cellIndex) => (
-                  <td key={`${cell}-${cellIndex}`}>{cell}</td>
+                  <td key={cellIndex}>{cell}</td>
                 ))}
               </tr>
             ))}
