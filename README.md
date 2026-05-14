@@ -4,8 +4,16 @@
 
 ## 本地运行
 
+首次本地开发可以复制一份环境变量文件：
+
 ```bash
-APP_SECRET=dev-secret ADMIN_USERNAME=admin ADMIN_PASSWORD=admin123 cargo run -p backup-manager
+cp .env.example .env
+```
+
+之后直接运行：
+
+```bash
+cargo run -p backup-manager
 ```
 
 打开 `http://127.0.0.1:8080`，使用 `admin / admin123` 登录。
