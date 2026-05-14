@@ -1,6 +1,9 @@
 /target/
+/.pnpm-store/
 /data/
 /backups/
+/web/dist/
+/web/node_modules/
 .env
 *.db
 *.db-shm

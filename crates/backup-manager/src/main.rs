@@ -14,7 +14,10 @@ use anyhow::Context;
 use axum::Router;
 use sqlx::sqlite::SqlitePoolOptions;
 use tokio::fs;
-use tower_http::{services::ServeDir, trace::TraceLayer};
+use tower_http::{
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::{
@@ -82,10 +85,14 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let api = api::router(state);
-    let web_dir = std::env::current_dir()?.join("web");
+    let web_dir = std::env::current_dir()?.join("web").join("dist");
     let app = Router::new()
         .nest("/api", api)
-        .fallback_service(ServeDir::new(web_dir).append_index_html_on_directories(true))
+        .fallback_service(
+            ServeDir::new(&web_dir)
+                .append_index_html_on_directories(true)
+                .fallback(ServeFile::new(web_dir.join("index.html"))),
+        )
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = config.bind_addr.parse()?;
