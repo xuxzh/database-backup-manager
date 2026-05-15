@@ -437,7 +437,9 @@ svg {
 .error-cell {
   max-width: 320px;
   color: var(--color-destructive);
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .filter-bar {
@@ -446,6 +448,12 @@ svg {
   gap: 12px;
   margin-bottom: 16px;
   flex-wrap: wrap;
+}
+
+.action-cell {
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .log-viewer {

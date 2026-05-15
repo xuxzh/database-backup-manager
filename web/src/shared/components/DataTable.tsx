@@ -36,10 +36,10 @@ export function DataTable({
           {action && <div className="shrink-0">{action}</div>}
         </CardHeader>
       )}
-      <CardContent className="p-0">
+      <CardContent className="p-0 overflow-x-auto">
         {rows.length ? (
           <Table>
-            <TableHeader>
+            <TableHeader className="sticky top-0 bg-card z-10">
               <TableRow>
                 {headers.map((header) => (
                   <TableHead key={header}>{header}</TableHead>
@@ -50,7 +50,9 @@ export function DataTable({
               {rows.map((row) => (
                 <TableRow key={row.key} data-state={row.rowState} onClick={row.onClick}>
                   {row.cells.map((cell, cellIndex) => (
-                    <TableCell key={cellIndex}>{cell}</TableCell>
+                    <TableCell key={cellIndex} className="whitespace-nowrap overflow-hidden text-ellipsis max-w-[320px]">
+                      {cell}
+                    </TableCell>
                   ))}
                 </TableRow>
               ))}
