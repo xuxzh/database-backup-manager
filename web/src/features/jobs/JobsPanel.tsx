@@ -1,0 +1,242 @@
+import { useMemo, useState } from "react";
+import type { FormEvent } from "react";
+import type { BackupJob, BackupRun, BackupRunLog, DatabaseConnection, BackupTarget } from "@/types/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ListChecks, Play } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { DataTable } from "@/shared/components/DataTable";
+import { Field } from "@/shared/components/Field";
+import { StatusBadge } from "@/shared/components/StatusBadge";
+import { IconButton } from "./IconButton";
+import { stageLabel, latestRunLogText, isRunInProgress, runningDuration } from "@/shared/formatters/run";
+import { formatDate } from "@/shared/formatters/date";
+import { formatDuration } from "@/shared/formatters/duration";
+
+type SubmitResult = Promise<boolean>;
+
+function mapNames(items: Array<{ id: string; name: string }>) {
+  return Object.fromEntries(items.map((item) => [item.id, item.name]));
+}
+
+export function JobsPanel({
+  activeRun,
+  activeRunLogs,
+  isSubmitting,
+  jobs,
+  sources,
+  targets,
+  onDelete,
+  onRun,
+  onSubmit,
+  onViewRun,
+}: {
+  activeRun: BackupRun | null;
+  activeRunLogs: BackupRunLog[];
+  isSubmitting: boolean;
+  jobs: BackupJob[];
+  sources: DatabaseConnection[];
+  targets: BackupTarget[];
+  onDelete: (job: BackupJob) => void;
+  onRun: (jobId: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => SubmitResult;
+  onViewRun: (runId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const sourceNames = useMemo(() => mapNames(sources), [sources]);
+  const targetNames = useMemo(() => mapNames(targets), [targets]);
+  const activeJobName = activeRun ? jobs.find((job) => job.id === activeRun.backupJobId)?.name : null;
+
+  return (
+    <section className="panel">
+      {activeRun && (
+        <Card className="active-run-card" data-state={activeRun.status.toLowerCase()}>
+          <CardHeader>
+            <div className="active-run-heading">
+              <div>
+                <CardTitle>本次手动执行</CardTitle>
+                <CardDescription>
+                  {activeJobName || activeRun.backupJobId} · {formatDate(activeRun.startedAt)}
+                </CardDescription>
+              </div>
+              <StatusBadge status={activeRun.status} />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="active-run-grid">
+              <div>
+                <span>当前阶段</span>
+                <strong>{stageLabel(activeRun.stage)}</strong>
+              </div>
+              <div>
+                <span>耗时</span>
+                <strong>{formatDuration(activeRun.durationMs) || runningDuration(activeRun)}</strong>
+              </div>
+              <div>
+                <span>备份文件</span>
+                <strong>{activeRun.archiveFileName || "生成中"}</strong>
+              </div>
+              <div>
+                <span>远端路径</span>
+                <strong>{activeRun.remotePath || "等待上传"}</strong>
+              </div>
+            </div>
+            {activeRun.errorMessage && <Alert variant="destructive">{activeRun.errorMessage}</Alert>}
+            <div className="active-run-footer">
+              <div className="active-run-log">
+                <ListChecks className="size-4" />
+                <span>{latestRunLogText(activeRunLogs)}</span>
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={() => onViewRun(activeRun.id)}>
+                查看完整日志
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      <DataTable
+        emptyText="暂无备份任务"
+        title="备份任务列表"
+        description="配置 Cron 计划，支持手动触发执行。"
+        action={
+          <Button
+            type="button"
+            onClick={() => setOpen(true)}
+            disabled={isSubmitting || !sources.length || !targets.length}
+          >
+            新建备份任务
+          </Button>
+        }
+        headers={["名称", "数据源", "数据库", "目标", "计划", "启用", "操作"]}
+        rows={jobs.map((job) => {
+          const isCurrentJobRunning = activeRun?.backupJobId === job.id && isRunInProgress(activeRun);
+          return {
+            key: job.id,
+            cells: [
+              <span className="font-medium">{job.name}</span>,
+              sourceNames[job.databaseConnectionId] || job.databaseConnectionId,
+              job.databaseName,
+              targetNames[job.backupTargetId] || job.backupTargetId,
+              <span className="font-mono text-xs">{job.schedule}</span>,
+              <Badge variant={job.enabled ? "success" : "secondary"}>{job.enabled ? "是" : "否"}</Badge>,
+              <div className="action-cell">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => onRun(job.id)}
+                  disabled={isSubmitting || isCurrentJobRunning}
+                >
+                  <Play className={isCurrentJobRunning ? "size-4 animate-pulse" : "size-4"} />
+                  {isCurrentJobRunning ? "执行中" : "立即执行"}
+                </Button>
+                <IconButton label="删除备份任务" disabled={isSubmitting} onClick={() => onDelete(job)} />
+              </div>,
+            ],
+          };
+        })}
+      />
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>新建备份任务</DialogTitle>
+            <DialogDescription>选择数据源和目标后，可配置 Cron 计划并支持手动触发。</DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[70vh]">
+            <form
+              className="form-grid"
+              id="create-job-form"
+              onSubmit={async (event) => {
+                const ok = await onSubmit(event);
+                if (ok) setOpen(false);
+              }}
+            >
+              <Field label="任务名称">
+                <Input name="name" placeholder="每日生产库备份" required />
+              </Field>
+              <Field label="数据源">
+                <Select name="databaseConnectionId" required>
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择数据源" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sources.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="备份数据库">
+                <Input name="databaseName" placeholder="业务库名" required />
+              </Field>
+              <Field label="备份目标">
+                <Select name="backupTargetId" required>
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择备份目标" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {targets.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Cron 计划">
+                <Input name="schedule" placeholder="0 0 2 * * *" defaultValue="0 0 2 * * *" required />
+              </Field>
+              <Field label="压缩方式">
+                <Select name="compression" defaultValue="gzip">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gzip">gzip</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="远端保留天数">
+                <Input name="remoteRetentionDays" type="number" defaultValue="30" required />
+              </Field>
+              <Field label="本地保留天数">
+                <Input name="localRetentionDays" type="number" defaultValue="7" required />
+              </Field>
+              <label className="checkbox-field">
+                <Checkbox name="enabled" defaultChecked />
+                <span>启用任务</span>
+              </label>
+            </form>
+          </ScrollArea>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" disabled={isSubmitting}>
+                取消
+              </Button>
+            </DialogClose>
+            <Button type="submit" form="create-job-form" disabled={isSubmitting}>
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}
