@@ -440,6 +440,14 @@ svg {
   overflow-wrap: anywhere;
 }
 
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
 .log-viewer {
   height: 360px;
   border-radius: 8px;
