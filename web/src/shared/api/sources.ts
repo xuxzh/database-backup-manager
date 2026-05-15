@@ -17,8 +17,8 @@ export async function deleteSource(token: string, id: string): Promise<void> {
   return apiRequest<void>(`/sources/${id}`, { method: "DELETE", token });
 }
 
-export async function testSource(token: string, data: UpsertDatabaseConnection): Promise<DatabaseConnection> {
-  return apiRequest<DatabaseConnection>("/sources/test", {
+export async function testSource(token: string, data: UpsertDatabaseConnection): Promise<{ ok: boolean }> {
+  return apiRequest<{ ok: boolean }>("/sources/test", {
     method: "POST",
     body: JSON.stringify(data),
     token,

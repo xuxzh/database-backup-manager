@@ -260,6 +260,36 @@ svg {
   font-weight: 600;
 }
 
+.cron-field {
+  display: grid;
+  gap: 8px;
+}
+
+.preflight-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.preflight-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.preflight-alert p {
+  margin: 5px 0 0;
+  color: var(--color-muted-foreground);
+}
+
+.preflight-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(128px, 1fr));
@@ -520,6 +550,11 @@ svg {
   .filter-bar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .preflight-alert {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .filter-bar > * {

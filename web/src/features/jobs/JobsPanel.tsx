@@ -9,7 +9,7 @@ import { Alert } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ListChecks, Play } from "lucide-react";
+import { AlertCircle, ListChecks, Play } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
@@ -27,9 +27,15 @@ import { IconButton } from "./IconButton";
 import { stageLabel, latestRunLogText, isRunInProgress, runningDuration } from "@/shared/formatters/run";
 import { formatDate } from "@/shared/formatters/date";
 import { formatDuration } from "@/shared/formatters/duration";
-import { validatePort, validateRetentionDays, validateRequiredString, validateCronExpression } from "@/shared/utils/validators";
+import { validateRetentionDays, validateRequiredString, validateCronExpression } from "@/shared/utils/validators";
 
 type SubmitResult = Promise<boolean>;
+
+const cronTemplates = [
+  { label: "每天 02:00", value: "0 0 2 * * *" },
+  { label: "每 6 小时", value: "0 0 */6 * * *" },
+  { label: "每周日 03:00", value: "0 0 3 * * 0" },
+];
 
 function mapNames(items: Array<{ id: string; name: string }>) {
   return Object.fromEntries(items.map((item) => [item.id, item.name]));
@@ -43,6 +49,8 @@ export function JobsPanel({
   sources,
   targets,
   onDelete,
+  onGoToSources,
+  onGoToTargets,
   onRun,
   onSubmit,
   onViewRun,
@@ -54,11 +62,14 @@ export function JobsPanel({
   sources: DatabaseConnection[];
   targets: BackupTarget[];
   onDelete: (job: BackupJob) => void;
+  onGoToSources: () => void;
+  onGoToTargets: () => void;
   onRun: (jobId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => SubmitResult;
   onViewRun: (runId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [schedule, setSchedule] = useState(cronTemplates[0].value);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState("");
   const sourceNames = useMemo(() => mapNames(sources), [sources]);
@@ -89,8 +100,17 @@ export function JobsPanel({
     setGlobalError("");
     if (!validateForm(form)) return false;
     const ok = await onSubmit(event);
-    if (ok) setOpen(false);
+    if (ok) resetDialog(false);
     return ok;
+  }
+
+  function resetDialog(nextOpen: boolean) {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setSchedule(cronTemplates[0].value);
+      setFieldErrors({});
+      setGlobalError("");
+    }
   }
 
   return (
@@ -140,6 +160,37 @@ export function JobsPanel({
           </CardContent>
         </Card>
       )}
+      {(!sources.length || !targets.length) && (
+        <Alert>
+          <div className="preflight-alert">
+            <div>
+              <div className="preflight-title">
+                <AlertCircle className="size-4" />
+                新建备份任务前需要完成基础配置
+              </div>
+              <p>
+                {!sources.length && !targets.length
+                  ? "请先创建数据源和备份目标。"
+                  : !sources.length
+                    ? "请先创建数据源。"
+                    : "请先创建备份目标。"}
+              </p>
+            </div>
+            <div className="preflight-actions">
+              {!sources.length && (
+                <Button type="button" variant="outline" size="sm" onClick={onGoToSources}>
+                  去创建数据源
+                </Button>
+              )}
+              {!targets.length && (
+                <Button type="button" variant="outline" size="sm" onClick={onGoToTargets}>
+                  去创建备份目标
+                </Button>
+              )}
+            </div>
+          </div>
+        </Alert>
+      )}
       <DataTable
         emptyText="暂无备份任务"
         title="备份任务列表"
@@ -157,7 +208,7 @@ export function JobsPanel({
               </TooltipContent>
             </Tooltip>
           ) : (
-            <Button type="button" onClick={() => setOpen(true)} disabled={isSubmitting}>
+            <Button type="button" onClick={() => resetDialog(true)} disabled={isSubmitting}>
               新建备份任务
             </Button>
           )
@@ -192,7 +243,7 @@ export function JobsPanel({
         })}
       />
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={resetDialog}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>新建备份任务</DialogTitle>
@@ -244,7 +295,27 @@ export function JobsPanel({
                 </Select>
               </Field>
               <Field label="Cron 计划">
-                <Input name="schedule" placeholder="0 0 2 * * *" defaultValue="0 0 2 * * *" required />
+                <div className="cron-field">
+                  <Select value={schedule} onValueChange={setSchedule}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择常用计划" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {cronTemplates.map((template) => (
+                        <SelectItem key={template.value} value={template.value}>
+                          {template.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    name="schedule"
+                    placeholder="0 0 2 * * *"
+                    value={schedule}
+                    onChange={(event) => setSchedule(event.target.value)}
+                    required
+                  />
+                </div>
                 {fieldErrors.schedule && <p className="field-error">{fieldErrors.schedule}</p>}
               </Field>
               <Field label="压缩方式">
@@ -258,11 +329,11 @@ export function JobsPanel({
                 </Select>
               </Field>
               <Field label="远端保留天数">
-                <Input name="remoteRetentionDays" type="number" defaultValue="30" required />
+                <Input name="remoteRetentionDays" type="number" min="0" step="1" defaultValue="30" required />
                 {fieldErrors.remoteRetentionDays && <p className="field-error">{fieldErrors.remoteRetentionDays}</p>}
               </Field>
               <Field label="本地保留天数">
-                <Input name="localRetentionDays" type="number" defaultValue="7" required />
+                <Input name="localRetentionDays" type="number" min="0" step="1" defaultValue="7" required />
                 {fieldErrors.localRetentionDays && <p className="field-error">{fieldErrors.localRetentionDays}</p>}
               </Field>
               <label className="checkbox-field">

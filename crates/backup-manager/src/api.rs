@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, post},
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -139,12 +140,22 @@ async fn test_source(
     State(state): State<AppState>,
     Json(input): Json<UpsertDatabaseConnection>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let encrypted = state.crypto.encrypt(&input.password)?;
-    let mut source = state
-        .repository
-        .create_database_connection(input, encrypted)
-        .await?;
-    source.password = Some(state.crypto.decrypt(&source.encrypted_password)?);
+    let input = input.normalized();
+    let now = Utc::now();
+    let source = DatabaseConnection {
+        id: "__test__".to_string(),
+        name: input.name,
+        db_type: input.db_type,
+        host: input.host,
+        port: input.port,
+        username: input.username,
+        encrypted_password: String::new(),
+        password: Some(input.password),
+        database_name: input.database_name,
+        config_json: input.config_json,
+        created_at: now,
+        updated_at: now,
+    };
     let adapter = state.database_registry.get(&source.db_type)?;
     adapter.test_connection(&source).await?;
     Ok(Json(json!({ "ok": true })))
@@ -193,12 +204,23 @@ async fn test_target(
     State(state): State<AppState>,
     Json(input): Json<UpsertBackupTarget>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let encrypted = state.crypto.encrypt(&input.secret)?;
-    let mut target = state
-        .repository
-        .create_backup_target(input, encrypted)
-        .await?;
-    target.secret = Some(state.crypto.decrypt(&target.encrypted_secret)?);
+    let input = input.normalized();
+    let now = Utc::now();
+    let target = BackupTarget {
+        id: "__test__".to_string(),
+        name: input.name,
+        target_type: input.target_type,
+        host: input.host,
+        port: input.port,
+        username: input.username,
+        auth_method: input.auth_method,
+        encrypted_secret: String::new(),
+        secret: Some(input.secret),
+        base_dir: input.base_dir,
+        config_json: input.config_json,
+        created_at: now,
+        updated_at: now,
+    };
     let adapter = state.target_registry.get(&target.target_type)?;
     adapter.test_connection(&target).await?;
     Ok(Json(json!({ "ok": true })))

@@ -177,6 +177,15 @@ function App() {
     return ok;
   }
 
+  async function handleTestSource(form: FormData): SubmitResult {
+    const payload = toUpsertDatabaseConnection(form);
+    await request<{ ok: boolean }>("/sources/test", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return true;
+  }
+
   async function handleCreateTarget(event: FormEvent<HTMLFormElement>): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -189,6 +198,15 @@ function App() {
     );
     if (ok) setNotice("备份目标已保存");
     return ok;
+  }
+
+  async function handleTestTarget(form: FormData): SubmitResult {
+    const payload = toUpsertBackupTarget(form);
+    await request<{ ok: boolean }>("/targets/test", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return true;
   }
 
   async function handleCreateJob(event: FormEvent<HTMLFormElement>): SubmitResult {
@@ -309,6 +327,7 @@ function App() {
               successMessage: "数据源已删除",
             })
           }
+          onTest={handleTestSource}
           onSubmit={handleCreateSource}
         />
       )}
@@ -323,6 +342,7 @@ function App() {
               successMessage: "备份目标已删除",
             })
           }
+          onTest={handleTestTarget}
           onSubmit={handleCreateTarget}
         />
       )}
@@ -342,6 +362,8 @@ function App() {
             })
           }
           onRun={runJob}
+          onGoToSources={() => setActiveTab("sources")}
+          onGoToTargets={() => setActiveTab("targets")}
           onSubmit={handleCreateJob}
           onViewRun={(runId) => {
             setActiveTab("runs");
