@@ -29,6 +29,14 @@ export type DatabaseConnection = {
   username: string;
   password: string | null;
   databaseName: string | null;
+  executionMode: string;
+  remoteHost: string | null;
+  remotePort: number | null;
+  remoteUsername: string | null;
+  remoteAuthMethod: string | null;
+  remoteSecret: string | null;
+  remoteToolPath: string | null;
+  remoteWorkingDir: string | null;
   configJson: JsonValue;
   createdAt: string;
   updatedAt: string;
@@ -42,6 +50,14 @@ export type UpsertDatabaseConnection = {
   username: string;
   password: string;
   databaseName?: string;
+  executionMode: string;
+  remoteHost?: string;
+  remotePort?: number;
+  remoteUsername?: string;
+  remoteAuthMethod?: string;
+  remoteSecret?: string;
+  remoteToolPath?: string;
+  remoteWorkingDir?: string;
   configJson: JsonValue;
 };
 

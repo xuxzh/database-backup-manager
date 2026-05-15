@@ -127,10 +127,16 @@ async fn create_source(
     Json(input): Json<UpsertDatabaseConnection>,
 ) -> Result<Json<DatabaseConnection>, ApiError> {
     let encrypted = state.crypto.encrypt(&input.password)?;
+    let encrypted_remote_secret = input
+        .remote_secret
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| state.crypto.encrypt(value))
+        .transpose()?;
     Ok(Json(
         state
             .repository
-            .create_database_connection(input, encrypted)
+            .create_database_connection(input, encrypted, encrypted_remote_secret)
             .await?,
     ))
 }
@@ -152,6 +158,15 @@ async fn test_source(
         encrypted_password: String::new(),
         password: Some(input.password),
         database_name: input.database_name,
+        execution_mode: input.execution_mode,
+        remote_host: input.remote_host,
+        remote_port: input.remote_port,
+        remote_username: input.remote_username,
+        remote_auth_method: input.remote_auth_method,
+        encrypted_remote_secret: None,
+        remote_secret: input.remote_secret,
+        remote_tool_path: input.remote_tool_path,
+        remote_working_dir: input.remote_working_dir,
         config_json: input.config_json,
         created_at: now,
         updated_at: now,

@@ -1,7 +1,9 @@
 use std::{
     collections::HashSet,
+    fs as std_fs,
     io::ErrorKind,
-    path::PathBuf,
+    path::{Path, PathBuf},
+    process::Stdio,
     sync::{Arc, Mutex},
 };
 
@@ -129,42 +131,21 @@ impl BackupExecutor {
         };
         let raw_path = run_dir.join(&raw_file_name);
         source.password = Some(self.crypto.decrypt(&source.encrypted_password)?);
+        source.remote_secret = source
+            .encrypted_remote_secret
+            .as_deref()
+            .map(|secret| self.crypto.decrypt(secret))
+            .transpose()?;
         target.secret = Some(self.crypto.decrypt(&target.encrypted_secret)?);
 
-        self.stage(run, "dump", "执行数据库导出命令").await?;
-        let command = database_adapter.build_backup_command(&source, &job, &raw_path)?;
-        let mut child = Command::new(&command.program);
-        child.args(&command.args);
-        if source.db_type == "mysql" {
-            child.env("MYSQL_PWD", source.password.as_deref().unwrap_or_default());
-        }
-        if source.db_type == "postgres" {
-            child.env("PGPASSWORD", source.password.as_deref().unwrap_or_default());
-        }
-        let output = child.output().await.map_err(|error| {
-            if error.kind() == ErrorKind::NotFound {
-                anyhow!(
-                    "stage=dump 未找到数据库客户端工具 `{}`。请在运行环境安装 {}，或通过 {} 指定可执行文件绝对路径: {}",
-                    command.program,
-                    client_install_hint(&source.db_type),
-                    dump_tool_env_name(&source.db_type),
-                    error
-                )
-            } else {
-                anyhow!(
-                    "stage=dump failed to run {}: {}",
-                    command.program,
-                    error
-                )
-            }
-        })?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!(
-                "stage=dump {} failed: {}",
-                command.program,
-                truncate(&stderr, 2000)
-            ));
+        if source.execution_mode == "remoteSsh" {
+            self.stage(run, "dump", "通过 SSH 在数据库服务器执行导出命令")
+                .await?;
+            run_remote_dump(&source, &job, &raw_path).await?;
+        } else {
+            self.stage(run, "dump", "执行数据库导出命令").await?;
+            let command = database_adapter.build_backup_command(&source, &job, &raw_path)?;
+            run_local_dump(&source, command, &raw_path).await?;
         }
 
         self.stage(run, "compress", "压缩备份文件").await?;
@@ -307,6 +288,250 @@ fn client_install_hint(db_type: &str) -> &'static str {
     }
 }
 
+async fn run_local_dump(
+    source: &crate::domain::DatabaseConnection,
+    command: crate::adapters::database::BackupCommand,
+    output_path: &Path,
+) -> anyhow::Result<()> {
+    let mut child = Command::new(&command.program);
+    child.args(&command.args);
+    if source.db_type == "mysql" {
+        child.env("MYSQL_PWD", source.password.as_deref().unwrap_or_default());
+    }
+    if source.db_type == "postgres" {
+        child.env("PGPASSWORD", source.password.as_deref().unwrap_or_default());
+    }
+    let output = child.output().await.map_err(|error| {
+        if error.kind() == ErrorKind::NotFound {
+            anyhow!(
+                "stage=dump 未找到数据库客户端工具 `{}`。请在运行环境安装 {}，或通过 {} 指定可执行文件绝对路径: {}",
+                command.program,
+                client_install_hint(&source.db_type),
+                dump_tool_env_name(&source.db_type),
+                error
+            )
+        } else {
+            anyhow!("stage=dump failed to run {}: {}", command.program, error)
+        }
+    })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!(
+            "stage=dump {} failed: {}",
+            command.program,
+            truncate(&stderr, 2000)
+        ));
+    }
+    if !output_path.exists() {
+        return Err(anyhow!(
+            "stage=dump {} finished but did not create backup file",
+            command.program
+        ));
+    }
+    Ok(())
+}
+
+async fn run_remote_dump(
+    source: &crate::domain::DatabaseConnection,
+    job: &crate::domain::BackupJob,
+    output_path: &Path,
+) -> anyhow::Result<()> {
+    let remote_host = required_remote_field(source.remote_host.as_deref(), "remoteHost")?;
+    let remote_username =
+        required_remote_field(source.remote_username.as_deref(), "remoteUsername")?;
+    let remote_auth_method = source.remote_auth_method.as_deref().unwrap_or("key");
+    let remote_command = build_remote_dump_command(source, job)?;
+    let identity_file = if remote_auth_method == "key" {
+        Some(write_remote_identity_file(source).await?)
+    } else {
+        None
+    };
+    let mut command = remote_ssh_command(source, identity_file.as_deref())?;
+    command.arg(remote_command);
+    let output_file = std_fs::File::create(output_path)
+        .with_context(|| format!("stage=dump failed to create {}", output_path.display()))?;
+    command.stdout(Stdio::from(output_file));
+    command.stderr(Stdio::piped());
+    let output = command.output().await.map_err(|error| {
+        if error.kind() == ErrorKind::NotFound {
+            anyhow!(
+                "stage=dump 未找到 SSH 客户端工具。远端执行需要安装 openssh-client；如果使用 SSH 密码认证，还需要安装 sshpass: {}",
+                error
+            )
+        } else {
+            anyhow!(
+                "stage=dump failed to run remote dump through ssh {}@{}: {}",
+                remote_username,
+                remote_host,
+                error
+            )
+        }
+    });
+    if let Some(path) = identity_file {
+        let _ = fs::remove_file(path).await;
+    }
+    let output = output?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!(
+            "stage=dump remote ssh dump failed: {}",
+            truncate(&stderr, 2000)
+        ));
+    }
+    Ok(())
+}
+
+fn build_remote_dump_command(
+    source: &crate::domain::DatabaseConnection,
+    job: &crate::domain::BackupJob,
+) -> anyhow::Result<String> {
+    let tool = source
+        .remote_tool_path
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(match source.db_type.as_str() {
+            "mysql" => "mysqldump",
+            "postgres" => "pg_dump",
+            other => {
+                return Err(anyhow!(
+                    "stage=dump unsupported remote database type: {other}"
+                ));
+            }
+        });
+    let password = source.password.as_deref().unwrap_or_default();
+    let mut parts = Vec::new();
+    if let Some(working_dir) = source.remote_working_dir.as_deref() {
+        parts.push(format!("cd {} &&", shell_quote(working_dir)));
+    }
+    match source.db_type.as_str() {
+        "mysql" => {
+            parts.push(format!(
+                "MYSQL_PWD={} {}",
+                shell_quote(password),
+                shell_quote(tool)
+            ));
+            parts.extend([
+                format!("--host={}", shell_quote(source.host.trim())),
+                format!("--port={}", source.port),
+                format!("--user={}", shell_quote(source.username.trim())),
+                "--single-transaction".to_string(),
+                "--routines".to_string(),
+                "--triggers".to_string(),
+                "--events".to_string(),
+                shell_quote(&job.database_name),
+            ]);
+        }
+        "postgres" => {
+            parts.push(format!(
+                "PGPASSWORD={} {}",
+                shell_quote(password),
+                shell_quote(tool)
+            ));
+            parts.extend([
+                format!("--host={}", shell_quote(source.host.trim())),
+                format!("--port={}", source.port),
+                format!("--username={}", shell_quote(source.username.trim())),
+                format!("--dbname={}", shell_quote(&job.database_name)),
+                "--format=custom".to_string(),
+                "--no-password".to_string(),
+            ]);
+        }
+        other => {
+            return Err(anyhow!(
+                "stage=dump unsupported remote database type: {other}"
+            ));
+        }
+    }
+    Ok(parts.join(" "))
+}
+
+fn remote_ssh_command(
+    source: &crate::domain::DatabaseConnection,
+    identity_file: Option<&Path>,
+) -> anyhow::Result<Command> {
+    let auth_method = source.remote_auth_method.as_deref().unwrap_or("key");
+    match auth_method {
+        "password" => {
+            let password = source
+                .remote_secret
+                .as_deref()
+                .ok_or_else(|| anyhow!("stage=dump remote ssh password auth requires a secret"))?;
+            let mut command = Command::new("sshpass");
+            command.arg("-e").arg("ssh").env("SSHPASS", password);
+            command.args(remote_ssh_options(source, identity_file)?);
+            Ok(command)
+        }
+        "key" => {
+            let mut command = Command::new("ssh");
+            command.args(remote_ssh_options(source, identity_file)?);
+            Ok(command)
+        }
+        other => Err(anyhow!(
+            "stage=dump unsupported remote ssh auth method: {other}"
+        )),
+    }
+}
+
+fn remote_ssh_options(
+    source: &crate::domain::DatabaseConnection,
+    identity_file: Option<&Path>,
+) -> anyhow::Result<Vec<String>> {
+    let remote_host = required_remote_field(source.remote_host.as_deref(), "remoteHost")?;
+    let remote_username =
+        required_remote_field(source.remote_username.as_deref(), "remoteUsername")?;
+    let remote_port = source.remote_port.unwrap_or(22).to_string();
+    let mut args = vec![
+        "-o".to_string(),
+        "BatchMode=no".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-p".to_string(),
+        remote_port,
+    ];
+    if source.remote_auth_method.as_deref().unwrap_or("key") == "key" {
+        let identity_file =
+            identity_file.ok_or_else(|| anyhow!("stage=dump missing remote ssh identity file"))?;
+        args.push("-i".to_string());
+        args.push(identity_file.display().to_string());
+    }
+    args.push(format!("{remote_username}@{remote_host}"));
+    Ok(args)
+}
+
+async fn write_remote_identity_file(
+    source: &crate::domain::DatabaseConnection,
+) -> anyhow::Result<PathBuf> {
+    let secret = source
+        .remote_secret
+        .as_deref()
+        .ok_or_else(|| anyhow!("stage=dump remote ssh key auth requires a private key"))?;
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!(
+        ".backup-manager-source-ssh-key-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::write(&path, secret).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path).await?.permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(&path, permissions).await?;
+    }
+    Ok(path)
+}
+
+fn required_remote_field<'a>(value: Option<&'a str>, field: &str) -> anyhow::Result<&'a str> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("stage=dump {field} is required for remoteSsh execution"))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 fn truncate(value: &str, max: usize) -> String {
     if value.len() <= max {
         value.to_string()
@@ -317,7 +542,10 @@ fn truncate(value: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::path_slug;
+    use super::{build_remote_dump_command, path_slug};
+    use chrono::Utc;
+
+    use crate::domain::{BackupJob, DatabaseConnection};
 
     #[test]
     fn path_slug_normalizes_path_segments() {
@@ -326,5 +554,73 @@ mod tests {
         assert_eq!(path_slug("135AAC---"), "135AAC");
         assert_eq!(path_slug("RH_AAC"), "RH_AAC");
         assert_eq!(path_slug("---...---"), "unnamed");
+    }
+
+    #[test]
+    fn remote_mysql_command_streams_dump_to_stdout() {
+        let source = remote_source("mysql");
+        let command = build_remote_dump_command(&source, &job()).unwrap();
+
+        assert!(command.contains("MYSQL_PWD='secret' 'mysqldump'"));
+        assert!(command.contains("--host='127.0.0.1'"));
+        assert!(command.contains("--user='backup'"));
+        assert!(command.contains("'app'"));
+        assert!(!command.contains("--result-file"));
+    }
+
+    #[test]
+    fn remote_postgres_command_streams_custom_dump_to_stdout() {
+        let source = remote_source("postgres");
+        let command = build_remote_dump_command(&source, &job()).unwrap();
+
+        assert!(command.contains("PGPASSWORD='secret' 'pg_dump'"));
+        assert!(command.contains("--dbname='app'"));
+        assert!(command.contains("--format=custom"));
+        assert!(!command.contains("--file="));
+    }
+
+    fn remote_source(db_type: &str) -> DatabaseConnection {
+        let now = Utc::now();
+        DatabaseConnection {
+            id: "source".into(),
+            name: "source".into(),
+            db_type: db_type.into(),
+            host: "127.0.0.1".into(),
+            port: if db_type == "mysql" { 3306 } else { 5432 },
+            username: "backup".into(),
+            encrypted_password: "encrypted".into(),
+            password: Some("secret".into()),
+            database_name: Some("app".into()),
+            execution_mode: "remoteSsh".into(),
+            remote_host: Some("db-server".into()),
+            remote_port: Some(22),
+            remote_username: Some("backup".into()),
+            remote_auth_method: Some("key".into()),
+            encrypted_remote_secret: Some("encrypted-key".into()),
+            remote_secret: Some("private-key".into()),
+            remote_tool_path: None,
+            remote_working_dir: None,
+            config_json: serde_json::json!({}),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn job() -> BackupJob {
+        let now = Utc::now();
+        BackupJob {
+            id: "job".into(),
+            name: "daily".into(),
+            database_connection_id: "source".into(),
+            database_name: "app".into(),
+            backup_target_id: "target".into(),
+            schedule: "0 0 2 * * *".into(),
+            compression: "gzip".into(),
+            remote_retention_days: 7,
+            local_retention_days: 1,
+            enabled: true,
+            created_at: now,
+            updated_at: now,
+        }
     }
 }

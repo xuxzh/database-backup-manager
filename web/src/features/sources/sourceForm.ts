@@ -12,6 +12,14 @@ export interface SourceFormValue {
   username: string;
   password: string;
   databaseName?: string;
+  executionMode: string;
+  remoteHost?: string;
+  remotePort?: number;
+  remoteUsername?: string;
+  remoteAuthMethod?: string;
+  remoteSecret?: string;
+  remoteToolPath?: string;
+  remoteWorkingDir?: string;
 }
 
 export function parseSourceForm(form: FormData): SourceFormValue {
@@ -23,6 +31,16 @@ export function parseSourceForm(form: FormData): SourceFormValue {
     username: stringField(form, "username"),
     password: stringField(form, "password"),
     databaseName: optionalStringField(form, "databaseName"),
+    executionMode: stringField(form, "executionMode") || "local",
+    remoteHost: optionalStringField(form, "remoteHost"),
+    remotePort: form.get("remotePort")?.toString().trim()
+      ? numberField(form, "remotePort")
+      : undefined,
+    remoteUsername: optionalStringField(form, "remoteUsername"),
+    remoteAuthMethod: optionalStringField(form, "remoteAuthMethod"),
+    remoteSecret: optionalStringField(form, "remoteSecret"),
+    remoteToolPath: optionalStringField(form, "remoteToolPath"),
+    remoteWorkingDir: optionalStringField(form, "remoteWorkingDir"),
   };
 }
 
@@ -36,6 +54,14 @@ export function toUpsertDatabaseConnection(form: FormData): UpsertDatabaseConnec
     username: value.username,
     password: value.password,
     databaseName: value.databaseName,
+    executionMode: value.executionMode,
+    remoteHost: value.remoteHost,
+    remotePort: value.remotePort,
+    remoteUsername: value.remoteUsername,
+    remoteAuthMethod: value.remoteAuthMethod,
+    remoteSecret: value.remoteSecret,
+    remoteToolPath: value.remoteToolPath,
+    remoteWorkingDir: value.remoteWorkingDir,
     configJson: {},
   };
 }
@@ -48,5 +74,12 @@ export function sourceToFormValue(source: DatabaseConnection): Partial<SourceFor
     port: source.port,
     username: source.username,
     databaseName: source.databaseName ?? undefined,
+    executionMode: source.executionMode,
+    remoteHost: source.remoteHost ?? undefined,
+    remotePort: source.remotePort ?? undefined,
+    remoteUsername: source.remoteUsername ?? undefined,
+    remoteAuthMethod: source.remoteAuthMethod ?? undefined,
+    remoteToolPath: source.remoteToolPath ?? undefined,
+    remoteWorkingDir: source.remoteWorkingDir ?? undefined,
   };
 }

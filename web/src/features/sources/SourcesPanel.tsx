@@ -44,6 +44,9 @@ export function SourcesPanel({
   const [open, setOpen] = useState(false);
   const [dbType, setDbType] = useState("mysql");
   const [port, setPort] = useState(defaultPorts.mysql);
+  const [executionMode, setExecutionMode] = useState("local");
+  const [remoteAuthMethod, setRemoteAuthMethod] = useState("key");
+  const [remotePort, setRemotePort] = useState("22");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState("");
   const [testMessage, setTestMessage] = useState("");
@@ -58,6 +61,14 @@ export function SourcesPanel({
     if (!form.get("host")?.toString().trim()) errors.host = "主机不能为空";
     if (!form.get("username")?.toString().trim()) errors.username = "用户名不能为空";
     if (!form.get("password")?.toString().trim()) errors.password = "密码不能为空";
+    if (form.get("executionMode") === "remoteSsh") {
+      const remotePort = Number(form.get("remotePort"));
+      const remotePortResult = validatePort(remotePort);
+      if (!remotePortResult.valid) errors.remotePort = remotePortResult.message!;
+      if (!form.get("remoteHost")?.toString().trim()) errors.remoteHost = "SSH 主机不能为空";
+      if (!form.get("remoteUsername")?.toString().trim()) errors.remoteUsername = "SSH 用户不能为空";
+      if (!form.get("remoteSecret")?.toString().trim()) errors.remoteSecret = "SSH 密钥或密码不能为空";
+    }
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -76,6 +87,9 @@ export function SourcesPanel({
       setTestMessage("");
       setDbType("mysql");
       setPort(defaultPorts.mysql);
+      setExecutionMode("local");
+      setRemoteAuthMethod("key");
+      setRemotePort("22");
     }
   }
 
@@ -111,13 +125,13 @@ export function SourcesPanel({
       <DataTable
         emptyText="暂无数据源"
         title="数据源列表"
-        description="配置 MySQL / PostgreSQL 连接信息。密码由后端加密保存。"
+        description="配置 MySQL / PostgreSQL 连接信息。默认由管理台本机执行备份工具。"
         action={
           <Button type="button" onClick={() => setOpen(true)} disabled={isSubmitting}>
             新建数据源
           </Button>
         }
-        headers={["名称", "类型", "主机", "端口", "用户", "默认数据库", "操作"]}
+        headers={["名称", "类型", "主机", "端口", "用户", "执行位置", "默认数据库", "操作"]}
         rows={items.map((item) => ({
           key: item.id,
           cells: [
@@ -126,6 +140,7 @@ export function SourcesPanel({
             item.host,
             String(item.port),
             item.username,
+            item.executionMode === "remoteSsh" ? "数据库服务器" : "管理台本机",
             item.databaseName || "未设置",
             <IconButton label="删除数据源" disabled={isSubmitting} onClick={() => onDelete(item)} />,
           ],
@@ -195,6 +210,67 @@ export function SourcesPanel({
             <Field label="默认数据库">
               <Input name="databaseName" placeholder="可选" />
             </Field>
+            <Field label="备份执行位置">
+              <Select name="executionMode" value={executionMode} onValueChange={setExecutionMode}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="local">管理台本机执行</SelectItem>
+                  <SelectItem value="remoteSsh">数据库服务器执行</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            {executionMode === "remoteSsh" && (
+              <>
+                <Field label="SSH 主机">
+                  <Input name="remoteHost" placeholder="数据库服务器地址" required />
+                  {fieldErrors.remoteHost && <p className="field-error">{fieldErrors.remoteHost}</p>}
+                </Field>
+                <Field label="SSH 端口">
+                  <Input
+                    name="remotePort"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    value={remotePort}
+                    onChange={(event) => setRemotePort(event.target.value)}
+                    required
+                  />
+                  {fieldErrors.remotePort && <p className="field-error">{fieldErrors.remotePort}</p>}
+                </Field>
+                <Field label="SSH 用户">
+                  <Input name="remoteUsername" placeholder="backup" required />
+                  {fieldErrors.remoteUsername && <p className="field-error">{fieldErrors.remoteUsername}</p>}
+                </Field>
+                <Field label="认证方式">
+                  <Select name="remoteAuthMethod" value={remoteAuthMethod} onValueChange={setRemoteAuthMethod}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="key">私钥</SelectItem>
+                      <SelectItem value="password">密码</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label={remoteAuthMethod === "password" ? "SSH 密码" : "SSH 私钥"}>
+                  <Input
+                    name="remoteSecret"
+                    type={remoteAuthMethod === "password" ? "password" : "text"}
+                    placeholder={remoteAuthMethod === "password" ? "SSH 登录密码" : "私钥内容"}
+                    required
+                  />
+                  {fieldErrors.remoteSecret && <p className="field-error">{fieldErrors.remoteSecret}</p>}
+                </Field>
+                <Field label="远端工具路径">
+                  <Input name="remoteToolPath" placeholder={dbType === "mysql" ? "默认 mysqldump" : "默认 pg_dump"} />
+                </Field>
+                <Field label="远端工作目录">
+                  <Input name="remoteWorkingDir" placeholder="可选" />
+                </Field>
+              </>
+            )}
           </form>
           <DialogFooter>
             <DialogClose asChild>

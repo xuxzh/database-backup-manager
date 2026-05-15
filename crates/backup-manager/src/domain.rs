@@ -33,6 +33,16 @@ pub struct DatabaseConnection {
     pub encrypted_password: String,
     pub password: Option<String>,
     pub database_name: Option<String>,
+    pub execution_mode: String,
+    pub remote_host: Option<String>,
+    pub remote_port: Option<i64>,
+    pub remote_username: Option<String>,
+    pub remote_auth_method: Option<String>,
+    #[serde(skip_serializing)]
+    pub encrypted_remote_secret: Option<String>,
+    pub remote_secret: Option<String>,
+    pub remote_tool_path: Option<String>,
+    pub remote_working_dir: Option<String>,
     pub config_json: Value,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -48,6 +58,15 @@ pub struct UpsertDatabaseConnection {
     pub username: String,
     pub password: String,
     pub database_name: Option<String>,
+    #[serde(default = "default_execution_mode")]
+    pub execution_mode: String,
+    pub remote_host: Option<String>,
+    pub remote_port: Option<i64>,
+    pub remote_username: Option<String>,
+    pub remote_auth_method: Option<String>,
+    pub remote_secret: Option<String>,
+    pub remote_tool_path: Option<String>,
+    pub remote_working_dir: Option<String>,
     #[serde(default)]
     pub config_json: Value,
 }
@@ -62,8 +81,35 @@ impl UpsertDatabaseConnection {
             .database_name
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
+        self.execution_mode = normalize_execution_mode(&self.execution_mode);
+        self.remote_host = normalize_optional_string(self.remote_host);
+        self.remote_username = normalize_optional_string(self.remote_username);
+        self.remote_auth_method = self
+            .remote_auth_method
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        self.remote_secret = normalize_optional_string(self.remote_secret);
+        self.remote_tool_path = normalize_optional_string(self.remote_tool_path);
+        self.remote_working_dir = normalize_optional_string(self.remote_working_dir);
         self
     }
+}
+
+fn default_execution_mode() -> String {
+    "local".to_string()
+}
+
+fn normalize_execution_mode(value: &str) -> String {
+    match value.trim() {
+        "remoteSsh" => "remoteSsh".to_string(),
+        _ => "local".to_string(),
+    }
+}
+
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

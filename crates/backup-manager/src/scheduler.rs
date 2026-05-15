@@ -112,9 +112,18 @@ mod tests {
                     username: "root".into(),
                     password: "secret".into(),
                     database_name: Some("app".into()),
+                    execution_mode: "local".into(),
+                    remote_host: None,
+                    remote_port: None,
+                    remote_username: None,
+                    remote_auth_method: None,
+                    remote_secret: None,
+                    remote_tool_path: None,
+                    remote_working_dir: None,
                     config_json: json!({}),
                 },
                 "encrypted".into(),
+                None,
             )
             .await
             .unwrap();

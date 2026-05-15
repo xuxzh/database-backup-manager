@@ -20,6 +20,7 @@ impl Repository {
         &self,
         input: UpsertDatabaseConnection,
         encrypted_password: String,
+        encrypted_remote_secret: Option<String>,
     ) -> anyhow::Result<DatabaseConnection> {
         let input = input.normalized();
         let now = Utc::now();
@@ -33,13 +34,22 @@ impl Repository {
             encrypted_password,
             password: None,
             database_name: input.database_name,
+            execution_mode: input.execution_mode,
+            remote_host: input.remote_host,
+            remote_port: input.remote_port,
+            remote_username: input.remote_username,
+            remote_auth_method: input.remote_auth_method,
+            encrypted_remote_secret,
+            remote_secret: None,
+            remote_tool_path: input.remote_tool_path,
+            remote_working_dir: input.remote_working_dir,
             config_json: input.config_json,
             created_at: now,
             updated_at: now,
         };
         sqlx::query(
-            "INSERT INTO database_connections (id, name, db_type, host, port, username, encrypted_password, database_name, config_json, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO database_connections (id, name, db_type, host, port, username, encrypted_password, database_name, execution_mode, remote_host, remote_port, remote_username, remote_auth_method, encrypted_remote_secret, remote_tool_path, remote_working_dir, config_json, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&item.id)
         .bind(&item.name)
@@ -49,6 +59,14 @@ impl Repository {
         .bind(&item.username)
         .bind(&item.encrypted_password)
         .bind(&item.database_name)
+        .bind(&item.execution_mode)
+        .bind(&item.remote_host)
+        .bind(item.remote_port)
+        .bind(&item.remote_username)
+        .bind(&item.remote_auth_method)
+        .bind(&item.encrypted_remote_secret)
+        .bind(&item.remote_tool_path)
+        .bind(&item.remote_working_dir)
         .bind(item.config_json.to_string())
         .bind(item.created_at.to_rfc3339())
         .bind(item.updated_at.to_rfc3339())
@@ -440,6 +458,15 @@ fn row_database_connection(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<Datab
         encrypted_password: row.try_get("encrypted_password")?,
         password: None,
         database_name: row.try_get("database_name")?,
+        execution_mode: row.try_get("execution_mode")?,
+        remote_host: row.try_get("remote_host")?,
+        remote_port: row.try_get("remote_port")?,
+        remote_username: row.try_get("remote_username")?,
+        remote_auth_method: row.try_get("remote_auth_method")?,
+        encrypted_remote_secret: row.try_get("encrypted_remote_secret")?,
+        remote_secret: None,
+        remote_tool_path: row.try_get("remote_tool_path")?,
+        remote_working_dir: row.try_get("remote_working_dir")?,
         config_json: parse_json(row.try_get("config_json")?)?,
         created_at: parse_time(row.try_get("created_at")?)?,
         updated_at: parse_time(row.try_get("updated_at")?)?,
