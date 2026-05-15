@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ListChecks, Play } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -144,13 +145,22 @@ export function JobsPanel({
         title="备份任务列表"
         description="配置 Cron 计划，支持手动触发执行。"
         action={
-          <Button
-            type="button"
-            onClick={() => setOpen(true)}
-            disabled={isSubmitting || !sources.length || !targets.length}
-          >
-            新建备份任务
-          </Button>
+          !sources.length || !targets.length ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" disabled>
+                  新建备份任务
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                { !sources.length && !targets.length ? "请先创建数据源和备份目标" : !sources.length ? "请先创建数据源" : "请先创建备份目标" }
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Button type="button" onClick={() => setOpen(true)} disabled={isSubmitting}>
+              新建备份任务
+            </Button>
+          )
         }
         headers={["名称", "数据源", "数据库", "目标", "计划", "启用", "操作"]}
         rows={jobs.map((job) => {
