@@ -93,7 +93,7 @@ impl DatabaseAdapter for MySqlAdapter {
     async fn test_connection(&self, config: &DatabaseConnection) -> anyhow::Result<()> {
         self.validate_config(config)?;
         let password = config.password.as_deref().unwrap_or_default();
-        let status = Command::new("mysqladmin")
+        let status = Command::new(tool_program("MYSQLADMIN_PATH", "mysqladmin"))
             .env("MYSQL_PWD", password)
             .args([
                 "-h",
@@ -121,7 +121,7 @@ impl DatabaseAdapter for MySqlAdapter {
     ) -> anyhow::Result<BackupCommand> {
         self.validate_config(config)?;
         Ok(BackupCommand {
-            program: "mysqldump".to_string(),
+            program: tool_program("MYSQLDUMP_PATH", "mysqldump"),
             args: vec![
                 format!("--host={}", config.host),
                 format!("--port={}", config.port),
@@ -178,7 +178,7 @@ impl DatabaseAdapter for PostgresAdapter {
         self.validate_config(config)?;
         let password = config.password.as_deref().unwrap_or_default();
         let database = config.database_name.as_deref().unwrap_or("postgres");
-        let status = Command::new("pg_isready")
+        let status = Command::new(tool_program("PG_ISREADY_PATH", "pg_isready"))
             .env("PGPASSWORD", password)
             .args([
                 "-h",
@@ -207,7 +207,7 @@ impl DatabaseAdapter for PostgresAdapter {
     ) -> anyhow::Result<BackupCommand> {
         self.validate_config(config)?;
         Ok(BackupCommand {
-            program: "pg_dump".to_string(),
+            program: tool_program("PG_DUMP_PATH", "pg_dump"),
             args: vec![
                 format!("--host={}", config.host),
                 format!("--port={}", config.port),
@@ -276,6 +276,14 @@ fn require_connection(config: &DatabaseConnection) -> anyhow::Result<()> {
         bail!("port must be positive");
     }
     Ok(())
+}
+
+fn tool_program(env_name: &str, default_program: &str) -> String {
+    std::env::var(env_name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default_program.to_string())
 }
 
 #[cfg(test)]

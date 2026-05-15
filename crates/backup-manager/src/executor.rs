@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    io::ErrorKind,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -137,10 +138,23 @@ impl BackupExecutor {
         if source.db_type == "postgres" {
             child.env("PGPASSWORD", source.password.as_deref().unwrap_or_default());
         }
-        let output = child
-            .output()
-            .await
-            .with_context(|| format!("failed to run {}", command.program))?;
+        let output = child.output().await.map_err(|error| {
+            if error.kind() == ErrorKind::NotFound {
+                anyhow!(
+                    "stage=dump 未找到数据库客户端工具 `{}`。请在运行环境安装 {}，或通过 {} 指定可执行文件绝对路径: {}",
+                    command.program,
+                    client_install_hint(&source.db_type),
+                    dump_tool_env_name(&source.db_type),
+                    error
+                )
+            } else {
+                anyhow!(
+                    "stage=dump failed to run {}: {}",
+                    command.program,
+                    error
+                )
+            }
+        })?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(anyhow!(
@@ -258,6 +272,26 @@ fn sanitize(value: &str) -> String {
             }
         })
         .collect()
+}
+
+fn dump_tool_env_name(db_type: &str) -> &'static str {
+    match db_type {
+        "mysql" => "MYSQLDUMP_PATH",
+        "postgres" => "PG_DUMP_PATH",
+        _ => "对应数据库适配器的客户端路径环境变量",
+    }
+}
+
+fn client_install_hint(db_type: &str) -> &'static str {
+    match db_type {
+        "mysql" => {
+            "MySQL 客户端工具，例如 macOS 上的 `brew install mysql-client` 或容器内的 `default-mysql-client`"
+        }
+        "postgres" => {
+            "PostgreSQL 客户端工具，例如 macOS 上的 `brew install libpq` 或容器内的 `postgresql-client`"
+        }
+        _ => "对应数据库客户端工具",
+    }
 }
 
 fn truncate(value: &str, max: usize) -> String {
