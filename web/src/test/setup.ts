@@ -11,11 +11,8 @@ global.ResizeObserver = vi.fn().mockImplementation(() => ({
   disconnect: vi.fn(),
 }));
 
-global.Intl.DateTimeFormat = class extends Intl.DateTimeFormat {
-  constructor() {
-    super("zh-CN", { dateStyle: "short", timeStyle: "medium", hour12: false });
-  }
-  override format() {
+global.Intl.DateTimeFormat = class {
+  format(_date?: Date): string {
     return "2026/01/01 12:00:00";
   }
-};
+} as unknown as typeof Intl.DateTimeFormat;

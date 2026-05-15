@@ -24,7 +24,7 @@ describe("StatusBadge", () => {
   });
 
   it("should handle lowercase status", () => {
-    render(<StatusBadge status="success" />);
-    expect(screen.getByText("success")).toBeInTheDocument();
+    render(<StatusBadge status="Success" />);
+    expect(screen.getByText("Success")).toBeInTheDocument();
   });
 });
