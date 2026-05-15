@@ -289,7 +289,15 @@ function App() {
       onLogout={logout}
       onRefresh={refresh}
     >
-      {activeTab === "dashboard" && <DashboardPanel dashboard={data.dashboard} />}
+      {activeTab === "dashboard" && (
+        <DashboardPanel
+          dashboard={data.dashboard}
+          onViewRun={(runId) => {
+            setActiveTab("runs");
+            loadRunLogs(runId);
+          }}
+        />
+      )}
       {activeTab === "sources" && (
         <SourcesPanel
           isSubmitting={isSubmitting}

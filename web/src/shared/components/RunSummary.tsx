@@ -1,10 +1,11 @@
 import { formatDate } from "@/shared/formatters/date";
 import { StatusBadge } from "./StatusBadge";
+import { stageLabel, formatDuration } from "@/shared/formatters/run";
 import type { BackupRun } from "@/types/api";
 
-export function RunSummary({ run }: { run: BackupRun }) {
+export function RunSummary({ run, onClick }: { run: BackupRun; onClick?: () => void }) {
   return (
-    <dl className="run-summary">
+    <dl className="run-summary" onClick={onClick} style={onClick ? { cursor: "pointer" } : undefined}>
       <div>
         <dt>状态</dt>
         <dd>
@@ -13,7 +14,7 @@ export function RunSummary({ run }: { run: BackupRun }) {
       </div>
       <div>
         <dt>阶段</dt>
-        <dd>{run.stage}</dd>
+        <dd>{stageLabel(run.stage)}</dd>
       </div>
       <div>
         <dt>开始时间</dt>
@@ -23,10 +24,20 @@ export function RunSummary({ run }: { run: BackupRun }) {
         <dt>结束时间</dt>
         <dd>{formatDate(run.finishedAt)}</dd>
       </div>
+      <div>
+        <dt>耗时</dt>
+        <dd>{formatDuration(run.durationMs) || "-"}</dd>
+      </div>
+      {run.remotePath && (
+        <div className="wide">
+          <dt>远端路径</dt>
+          <dd className="font-mono text-sm">{run.remotePath}</dd>
+        </div>
+      )}
       {run.errorMessage && (
         <div className="wide">
           <dt>错误</dt>
-          <dd>{run.errorMessage}</dd>
+          <dd className="text-destructive">{run.errorMessage}</dd>
         </div>
       )}
     </dl>

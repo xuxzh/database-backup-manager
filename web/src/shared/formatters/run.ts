@@ -2,6 +2,8 @@ import type { BackupRun, BackupRunLog } from "@/types/api";
 import { formatDuration } from "./duration";
 import { formatDate } from "./date";
 
+export { formatDuration };
+
 export function stageLabel(stage: string) {
   const labels: Record<string, string> = {
     pending: "等待调度",

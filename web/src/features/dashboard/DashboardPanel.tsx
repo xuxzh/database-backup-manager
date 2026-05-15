@@ -1,10 +1,17 @@
 import type { DashboardStats } from "@/types/api";
-import { Database, HardDrive, CalendarClock, ShieldCheck, History } from "lucide-react";
+import { Database, HardDrive, CalendarClock, ShieldCheck, History, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { RunSummary } from "@/shared/components/RunSummary";
 import { EmptyState } from "@/shared/components/EmptyState";
+import { Button } from "@/components/ui/button";
 
-export function DashboardPanel({ dashboard }: { dashboard: DashboardStats | null }) {
+export function DashboardPanel({
+  dashboard,
+  onViewRun,
+}: {
+  dashboard: DashboardStats | null;
+  onViewRun?: (runId: string) => void;
+}) {
   const stats = [
     { label: "数据源", value: dashboard?.sourceCount ?? 0, icon: <Database />, tone: "sky" },
     { label: "备份目标", value: dashboard?.targetCount ?? 0, icon: <HardDrive />, tone: "indigo" },
@@ -27,15 +34,41 @@ export function DashboardPanel({ dashboard }: { dashboard: DashboardStats | null
           </Card>
         ))}
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>最近运行</CardTitle>
-          <CardDescription>最近一次备份执行的状态和阶段</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {dashboard?.latestRun ? <RunSummary run={dashboard.latestRun} /> : <EmptyState text="暂无运行记录" />}
-        </CardContent>
-      </Card>
+
+      {dashboard?.latestRun && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>最近运行</CardTitle>
+                <CardDescription>最近一次备份执行的状态和阶段</CardDescription>
+              </div>
+              {onViewRun && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => onViewRun(dashboard.latestRun!.id)}>
+                  查看详情
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <RunSummary run={dashboard.latestRun} />
+          </CardContent>
+        </Card>
+      )}
+
+      {!dashboard?.latestRun && <EmptyState text="暂无运行记录" />}
+
+      {dashboard?.todayFailedCount !== undefined && dashboard.todayFailedCount > 0 && (
+        <Card className="border-destructive/50">
+          <CardHeader>
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="size-5" />
+              <CardTitle className="text-destructive">今日失败</CardTitle>
+            </div>
+            <CardDescription>最近 {dashboard.todayFailedCount} 次备份执行失败，请检查运行记录。</CardDescription>
+          </CardHeader>
+        </Card>
+      )}
     </section>
   );
 }
