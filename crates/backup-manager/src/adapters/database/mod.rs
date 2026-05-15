@@ -93,15 +93,16 @@ impl DatabaseAdapter for MySqlAdapter {
     async fn test_connection(&self, config: &DatabaseConnection) -> anyhow::Result<()> {
         self.validate_config(config)?;
         let password = config.password.as_deref().unwrap_or_default();
+        let port = config.port.to_string();
         let status = Command::new(tool_program("MYSQLADMIN_PATH", "mysqladmin"))
             .env("MYSQL_PWD", password)
             .args([
                 "-h",
-                &config.host,
+                config.host.trim(),
                 "-P",
-                &config.port.to_string(),
+                port.as_str(),
                 "-u",
-                &config.username,
+                config.username.trim(),
                 "ping",
             ])
             .status()
@@ -123,9 +124,9 @@ impl DatabaseAdapter for MySqlAdapter {
         Ok(BackupCommand {
             program: tool_program("MYSQLDUMP_PATH", "mysqldump"),
             args: vec![
-                format!("--host={}", config.host),
+                format!("--host={}", config.host.trim()),
                 format!("--port={}", config.port),
-                format!("--user={}", config.username),
+                format!("--user={}", config.username.trim()),
                 "--single-transaction".to_string(),
                 "--routines".to_string(),
                 "--triggers".to_string(),
@@ -177,16 +178,22 @@ impl DatabaseAdapter for PostgresAdapter {
     async fn test_connection(&self, config: &DatabaseConnection) -> anyhow::Result<()> {
         self.validate_config(config)?;
         let password = config.password.as_deref().unwrap_or_default();
-        let database = config.database_name.as_deref().unwrap_or("postgres");
+        let database = config
+            .database_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("postgres");
+        let port = config.port.to_string();
         let status = Command::new(tool_program("PG_ISREADY_PATH", "pg_isready"))
             .env("PGPASSWORD", password)
             .args([
                 "-h",
-                &config.host,
+                config.host.trim(),
                 "-p",
-                &config.port.to_string(),
+                port.as_str(),
                 "-U",
-                &config.username,
+                config.username.trim(),
                 "-d",
                 database,
             ])
@@ -209,10 +216,10 @@ impl DatabaseAdapter for PostgresAdapter {
         Ok(BackupCommand {
             program: tool_program("PG_DUMP_PATH", "pg_dump"),
             args: vec![
-                format!("--host={}", config.host),
+                format!("--host={}", config.host.trim()),
                 format!("--port={}", config.port),
-                format!("--username={}", config.username),
-                format!("--dbname={}", job.database_name),
+                format!("--username={}", config.username.trim()),
+                format!("--dbname={}", job.database_name.trim()),
                 "--format=custom".to_string(),
                 format!("--file={}", output_path.display()),
                 format!("--no-password"),
@@ -354,5 +361,19 @@ mod tests {
             .unwrap();
         assert_eq!(command.program, "pg_dump");
         assert!(command.args.contains(&"--format=custom".to_string()));
+    }
+
+    #[test]
+    fn mysql_command_trims_connection_fields() {
+        let mut connection = connection("mysql");
+        connection.host = " 192.168.0.135 ".into();
+        connection.username = " backup ".into();
+
+        let command = MySqlAdapter
+            .build_backup_command(&connection, &job(), std::path::Path::new("/tmp/app.sql"))
+            .unwrap();
+
+        assert!(command.args.contains(&"--host=192.168.0.135".to_string()));
+        assert!(command.args.contains(&"--user=backup".to_string()));
     }
 }

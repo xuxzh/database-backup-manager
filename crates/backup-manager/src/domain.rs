@@ -52,6 +52,20 @@ pub struct UpsertDatabaseConnection {
     pub config_json: Value,
 }
 
+impl UpsertDatabaseConnection {
+    pub fn normalized(mut self) -> Self {
+        self.name = self.name.trim().to_string();
+        self.db_type = self.db_type.trim().to_string();
+        self.host = self.host.trim().to_string();
+        self.username = self.username.trim().to_string();
+        self.database_name = self
+            .database_name
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupTarget {
@@ -86,6 +100,18 @@ pub struct UpsertBackupTarget {
     pub config_json: Value,
 }
 
+impl UpsertBackupTarget {
+    pub fn normalized(mut self) -> Self {
+        self.name = self.name.trim().to_string();
+        self.target_type = self.target_type.trim().to_string();
+        self.host = self.host.trim().to_string();
+        self.username = self.username.trim().to_string();
+        self.auth_method = self.auth_method.trim().to_string();
+        self.base_dir = self.base_dir.trim().to_string();
+        self
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupJob {
@@ -115,6 +141,18 @@ pub struct UpsertBackupJob {
     pub remote_retention_days: i64,
     pub local_retention_days: i64,
     pub enabled: bool,
+}
+
+impl UpsertBackupJob {
+    pub fn normalized(mut self) -> Self {
+        self.name = self.name.trim().to_string();
+        self.database_connection_id = self.database_connection_id.trim().to_string();
+        self.database_name = self.database_name.trim().to_string();
+        self.backup_target_id = self.backup_target_id.trim().to_string();
+        self.schedule = self.schedule.trim().to_string();
+        self.compression = self.compression.trim().to_string();
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

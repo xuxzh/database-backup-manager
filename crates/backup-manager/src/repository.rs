@@ -21,6 +21,7 @@ impl Repository {
         input: UpsertDatabaseConnection,
         encrypted_password: String,
     ) -> anyhow::Result<DatabaseConnection> {
+        let input = input.normalized();
         let now = Utc::now();
         let item = DatabaseConnection {
             id: Uuid::new_v4().to_string(),
@@ -93,6 +94,7 @@ impl Repository {
         input: UpsertBackupTarget,
         encrypted_secret: String,
     ) -> anyhow::Result<BackupTarget> {
+        let input = input.normalized();
         let now = Utc::now();
         let item = BackupTarget {
             id: Uuid::new_v4().to_string(),
@@ -163,6 +165,7 @@ impl Repository {
     }
 
     pub async fn create_backup_job(&self, input: UpsertBackupJob) -> anyhow::Result<BackupJob> {
+        let input = input.normalized();
         let now = Utc::now();
         let item = BackupJob {
             id: Uuid::new_v4().to_string(),
