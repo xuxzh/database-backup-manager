@@ -128,7 +128,7 @@ mod tests {
                     username: "root".into(),
                     auth_method: "password".into(),
                     secret: "secret".into(),
-                    base_dir: "/data/backups".into(),
+                    base_dir: "~/backups".into(),
                     config_json: json!({}),
                 },
                 "encrypted".into(),

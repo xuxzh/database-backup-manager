@@ -138,7 +138,7 @@ export function TargetsPanel({
               {fieldErrors.secret && <p className="field-error">{fieldErrors.secret}</p>}
             </Field>
             <Field label="远端目录">
-              <Input name="baseDir" placeholder="/data/backups" defaultValue="/data/backups" required />
+              <Input name="baseDir" placeholder="~/backups" defaultValue="~/backups" required />
               {fieldErrors.baseDir && <p className="field-error">{fieldErrors.baseDir}</p>}
             </Field>
           </form>

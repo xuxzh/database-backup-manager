@@ -125,7 +125,7 @@ impl BackupTargetAdapter for SshTargetAdapter {
                     label: "远端目录".into(),
                     field_type: "text".into(),
                     required: true,
-                    default: Some(json!("/data/backups")),
+                    default: Some(json!("~/backups")),
                 },
             ],
         }
