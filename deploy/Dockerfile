@@ -14,7 +14,7 @@ RUN cargo build --release -p backup-manager
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates default-mysql-client postgresql-client openssh-client rsync gzip \
+  && apt-get install -y --no-install-recommends ca-certificates default-mysql-client postgresql-client openssh-client rsync sshpass gzip \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/target/release/backup-manager /usr/local/bin/backup-manager

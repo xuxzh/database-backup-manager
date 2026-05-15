@@ -10,7 +10,7 @@
 cp .env.example .env
 ```
 
-本地需要先准备 Rust 工具链和 pnpm。前端静态资源由 Rust 服务托管，因此直接访问 `http://127.0.0.1:8080` 前，需要先生成 `web/dist/`：
+本地需要先准备 Rust 工具链、pnpm、数据库客户端工具、`openssh-client`、`rsync`。如果备份目标使用 SSH 密码认证，还需要安装 `sshpass`。前端静态资源由 Rust 服务托管，因此直接访问 `http://127.0.0.1:8080` 前，需要先生成 `web/dist/`：
 
 ```bash
 pnpm -C web install

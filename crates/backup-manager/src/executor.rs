@@ -109,7 +109,7 @@ impl BackupExecutor {
             .repository
             .get_database_connection(&job.database_connection_id)
             .await?;
-        let target = self
+        let mut target = self
             .repository
             .get_backup_target(&job.backup_target_id)
             .await?;
@@ -127,6 +127,7 @@ impl BackupExecutor {
         };
         let raw_path = run_dir.join(&raw_file_name);
         source.password = Some(self.crypto.decrypt(&source.encrypted_password)?);
+        target.secret = Some(self.crypto.decrypt(&target.encrypted_secret)?);
 
         self.stage(run, "dump", "执行数据库导出命令").await?;
         let command = database_adapter.build_backup_command(&source, &job, &raw_path)?;
