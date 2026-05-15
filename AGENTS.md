@@ -5,7 +5,7 @@
 本仓库是一个面向自部署场景的数据库备份管理台，采用 Rust workspace 组织。
 
 - 后端：`crates/backup-manager`，基于 Axum 的单体服务，使用 SQLite 保存元数据。
-- 前端：`web/`，静态 HTML/CSS/JavaScript 管理界面，由后端服务直接托管。
+- 前端：`web/`，基于 React、Vite、TypeScript 和 pnpm 的管理界面；生产构建产物由后端服务直接托管。
 - 部署：`deploy/`，包含 Dockerfile 和 Docker Compose 配置。
 - 文档：`docs/`，包含中文产品计划和架构设计文档。
 
@@ -24,7 +24,11 @@
 - `crates/backup-manager/src/adapters/database/`：数据库适配器，例如 MySQL、PostgreSQL。
 - `crates/backup-manager/src/adapters/target/`：备份目标适配器，例如 SSH/rsync 目标。
 - `crates/backup-manager/migrations/`：SQLx 数据库迁移脚本。
-- `web/index.html`、`web/styles.css`、`web/app.js`：静态管理界面。
+- `web/index.html`：Vite 入口 HTML。
+- `web/src/main.tsx`、`web/src/App.tsx`：React 管理界面入口和主应用。
+- `web/src/styles.css`：前端全局样式。
+- `web/src/components/ui/`：管理界面复用 UI 组件。
+- `web/dist/`：前端生产构建产物，由后端服务托管，不应手工编辑。
 - `data/` 和 `backups/`：本地运行时状态目录，已被 git 忽略，不应提交。
 
 ## 本地开发
@@ -35,9 +39,13 @@
 cp .env.example .env
 ```
 
-启动应用：
+首次访问后端托管页面前，需要先构建前端产物：
 
 ```bash
+cd web
+pnpm install
+pnpm build
+cd ..
 cargo run -p backup-manager
 ```
 
@@ -74,6 +82,20 @@ cargo clippy --all-targets --all-features
 cargo build
 ```
 
+构建前端：
+
+```bash
+cd web
+pnpm build
+```
+
+启动前端开发服务器：
+
+```bash
+cd web
+pnpm dev
+```
+
 使用 Docker Compose 启动：
 
 ```bash
@@ -104,7 +126,8 @@ docker compose up --build
 - 新增持久化字段时，需要在 `crates/backup-manager/migrations/` 中添加 SQL migration，并同步更新 `domain.rs`、`repository.rs` 和前端界面。
 - 新增 API 时，在 `api.rs` 的 `/api` router 下注册路由，并明确认证要求。
 - 修改调度器或执行器逻辑时，运行相关单元测试以及 `cargo test`。
-- `web/` 由 Rust 二进制通过 `ServeDir` 直接托管；修改静态前端不需要额外的前端构建步骤。
+- 生产环境由 Rust 二进制通过 `ServeDir` 托管 `web/dist/`；修改前端后需要执行 `cd web && pnpm build` 生成最新产物。
+- 前端本地开发可使用 `cd web && pnpm dev`，Vite 会将 `/api` 代理到后端服务。
 - 优先保持变更小而聚焦，延续当前单二进制部署模型。
 
 ## 验证要求
