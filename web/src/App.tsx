@@ -49,6 +49,7 @@ import type {
 
 type TabKey = "dashboard" | "sources" | "targets" | "jobs" | "runs";
 type DeleteTarget = { label: string; path: string; successMessage: string } | null;
+type SubmitResult = Promise<boolean>;
 
 type AppData = {
   dashboard: DashboardStats | null;
@@ -213,7 +214,7 @@ function App() {
     }
   }
 
-  async function handleCreateSource(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateSource(event: FormEvent<HTMLFormElement>): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const payload: UpsertDatabaseConnection = {
@@ -226,16 +227,17 @@ function App() {
       databaseName: optionalStringField(form, "databaseName"),
       configJson: {},
     };
-    await submitForm(event.currentTarget, () =>
+    const ok = await submitForm(event.currentTarget, () =>
       request<DatabaseConnection>("/sources", {
         method: "POST",
         body: JSON.stringify(payload),
       }),
     );
-    setNotice("数据源已保存");
+    if (ok) setNotice("数据源已保存");
+    return ok;
   }
 
-  async function handleCreateTarget(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateTarget(event: FormEvent<HTMLFormElement>): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const payload: UpsertBackupTarget = {
@@ -249,16 +251,17 @@ function App() {
       baseDir: stringField(form, "baseDir"),
       configJson: {},
     };
-    await submitForm(event.currentTarget, () =>
+    const ok = await submitForm(event.currentTarget, () =>
       request<BackupTarget>("/targets", {
         method: "POST",
         body: JSON.stringify(payload),
       }),
     );
-    setNotice("备份目标已保存");
+    if (ok) setNotice("备份目标已保存");
+    return ok;
   }
 
-  async function handleCreateJob(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateJob(event: FormEvent<HTMLFormElement>): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const payload: UpsertBackupJob = {
@@ -272,13 +275,14 @@ function App() {
       localRetentionDays: numberField(form, "localRetentionDays"),
       enabled: form.get("enabled") === "on",
     };
-    await submitForm(event.currentTarget, () =>
+    const ok = await submitForm(event.currentTarget, () =>
       request<BackupJob>("/jobs", {
         method: "POST",
         body: JSON.stringify(payload),
       }),
     );
-    setNotice("备份任务已保存");
+    if (ok) setNotice("备份任务已保存");
+    return ok;
   }
 
   async function submitForm(form: HTMLFormElement, action: () => Promise<unknown>) {
@@ -289,8 +293,10 @@ function App() {
       await action();
       form.reset();
       await refresh();
+      return true;
     } catch (submitError) {
       setError(errorMessage(submitError));
+      return false;
     } finally {
       setIsSubmitting(false);
     }
@@ -582,17 +588,49 @@ function SourcesPanel({
   isSubmitting: boolean;
   items: DatabaseConnection[];
   onDelete: (source: DatabaseConnection) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => SubmitResult;
 }) {
+  const [open, setOpen] = useState(false);
   return (
     <section className="panel">
-      <Card>
-        <CardHeader>
-          <CardTitle>新增数据源</CardTitle>
-          <CardDescription>数据库密码会由后端加密保存。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="form-grid" onSubmit={onSubmit}>
+      <DataTable
+        emptyText="暂无数据源"
+        title="数据源列表"
+        description="配置 MySQL / PostgreSQL 连接信息。密码由后端加密保存。"
+        action={
+          <Button type="button" onClick={() => setOpen(true)} disabled={isSubmitting}>
+            新建数据源
+          </Button>
+        }
+        headers={["名称", "类型", "主机", "端口", "用户", "默认数据库", "操作"]}
+        rows={items.map((item) => ({
+          key: item.id,
+          cells: [
+            <span className="font-medium">{item.name}</span>,
+            <Badge variant="secondary">{item.dbType}</Badge>,
+            item.host,
+            String(item.port),
+            item.username,
+            item.databaseName || "未设置",
+            <IconButton label="删除数据源" disabled={isSubmitting} onClick={() => onDelete(item)} />,
+          ],
+        }))}
+      />
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>新建数据源</DialogTitle>
+            <DialogDescription>数据库密码会由后端加密保存。</DialogDescription>
+          </DialogHeader>
+          <form
+            className="form-grid"
+            id="create-source-form"
+            onSubmit={async (event) => {
+              const ok = await onSubmit(event);
+              if (ok) setOpen(false);
+            }}
+          >
             <Field label="名称">
               <Input name="name" placeholder="生产库" required />
             </Field>
@@ -622,27 +660,19 @@ function SourcesPanel({
             <Field label="默认数据库">
               <Input name="databaseName" placeholder="可选" />
             </Field>
-            <div className="form-actions">
-              <Button type="submit" disabled={isSubmitting}>
-                新增数据源
-              </Button>
-            </div>
           </form>
-        </CardContent>
-      </Card>
-      <DataTable
-        emptyText="暂无数据源"
-        headers={["名称", "类型", "主机", "端口", "用户", "默认数据库", "操作"]}
-        rows={items.map((item) => [
-          item.name,
-          <Badge variant="secondary">{item.dbType}</Badge>,
-          item.host,
-          String(item.port),
-          item.username,
-          item.databaseName || "未设置",
-          <IconButton label="删除数据源" disabled={isSubmitting} onClick={() => onDelete(item)} />,
-        ])}
-      />
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" disabled={isSubmitting}>
+                取消
+              </Button>
+            </DialogClose>
+            <Button type="submit" form="create-source-form" disabled={isSubmitting}>
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -656,17 +686,49 @@ function TargetsPanel({
   isSubmitting: boolean;
   items: BackupTarget[];
   onDelete: (target: BackupTarget) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => SubmitResult;
 }) {
+  const [open, setOpen] = useState(false);
   return (
     <section className="panel">
-      <Card>
-        <CardHeader>
-          <CardTitle>新增备份目标</CardTitle>
-          <CardDescription>当前支持 SSH 远端目标，可使用密钥或密码认证。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="form-grid" onSubmit={onSubmit}>
+      <DataTable
+        emptyText="暂无备份目标"
+        title="备份目标列表"
+        description="当前支持 SSH 远端目标，可使用密钥或密码认证。"
+        action={
+          <Button type="button" onClick={() => setOpen(true)} disabled={isSubmitting}>
+            新建备份目标
+          </Button>
+        }
+        headers={["名称", "类型", "主机", "端口", "用户", "远端目录", "操作"]}
+        rows={items.map((item) => ({
+          key: item.id,
+          cells: [
+            <span className="font-medium">{item.name}</span>,
+            <Badge variant="secondary">{item.targetType}</Badge>,
+            item.host,
+            String(item.port),
+            item.username,
+            item.baseDir,
+            <IconButton label="删除备份目标" disabled={isSubmitting} onClick={() => onDelete(item)} />,
+          ],
+        }))}
+      />
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>新建备份目标</DialogTitle>
+            <DialogDescription>当前支持 SSH 远端目标，可使用密钥或密码认证。</DialogDescription>
+          </DialogHeader>
+          <form
+            className="form-grid"
+            id="create-target-form"
+            onSubmit={async (event) => {
+              const ok = await onSubmit(event);
+              if (ok) setOpen(false);
+            }}
+          >
             <Field label="名称">
               <Input name="name" placeholder="远端备份机" required />
             </Field>
@@ -696,27 +758,19 @@ function TargetsPanel({
             <Field label="远端目录">
               <Input name="baseDir" placeholder="/data/backups" defaultValue="/data/backups" required />
             </Field>
-            <div className="form-actions">
-              <Button type="submit" disabled={isSubmitting}>
-                新增目标
-              </Button>
-            </div>
           </form>
-        </CardContent>
-      </Card>
-      <DataTable
-        emptyText="暂无备份目标"
-        headers={["名称", "类型", "主机", "端口", "用户", "远端目录", "操作"]}
-        rows={items.map((item) => [
-          item.name,
-          <Badge variant="secondary">{item.targetType}</Badge>,
-          item.host,
-          String(item.port),
-          item.username,
-          item.baseDir,
-          <IconButton label="删除备份目标" disabled={isSubmitting} onClick={() => onDelete(item)} />,
-        ])}
-      />
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" disabled={isSubmitting}>
+                取消
+              </Button>
+            </DialogClose>
+            <Button type="submit" form="create-target-form" disabled={isSubmitting}>
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -741,9 +795,10 @@ function JobsPanel({
   targets: BackupTarget[];
   onDelete: (job: BackupJob) => void;
   onRun: (jobId: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => SubmitResult;
   onViewRun: (runId: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const sourceNames = useMemo(() => mapNames(sources), [sources]);
   const targetNames = useMemo(() => mapNames(targets), [targets]);
   const activeJobName = activeRun ? jobs.find((job) => job.id === activeRun.backupJobId)?.name : null;
@@ -795,127 +850,135 @@ function JobsPanel({
           </CardContent>
         </Card>
       )}
-      <Card>
-        <CardHeader>
-          <CardTitle>新增备份任务</CardTitle>
-          <CardDescription>选择数据源和目标后，可配置 Cron 计划并支持手动触发。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="form-grid" onSubmit={onSubmit}>
-            <Field label="任务名称">
-              <Input name="name" placeholder="每日生产库备份" required />
-            </Field>
-            <Field label="数据源">
-              <Select name="databaseConnectionId" required>
-                <SelectTrigger>
-                  <SelectValue placeholder="选择数据源" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sources.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="备份数据库">
-              <Input name="databaseName" placeholder="业务库名" required />
-            </Field>
-            <Field label="备份目标">
-              <Select name="backupTargetId" required>
-                <SelectTrigger>
-                  <SelectValue placeholder="选择备份目标" />
-                </SelectTrigger>
-                <SelectContent>
-                  {targets.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Cron 计划">
-              <Input name="schedule" placeholder="0 0 2 * * *" defaultValue="0 0 2 * * *" required />
-            </Field>
-            <Field label="压缩方式">
-              <Select name="compression" defaultValue="gzip">
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="gzip">gzip</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="远端保留天数">
-              <Input name="remoteRetentionDays" type="number" defaultValue="30" required />
-            </Field>
-            <Field label="本地保留天数">
-              <Input name="localRetentionDays" type="number" defaultValue="7" required />
-            </Field>
-            <label className="checkbox-field">
-              <Checkbox name="enabled" defaultChecked />
-              <span>启用任务</span>
-            </label>
-            <div className="form-actions">
-              <Button type="submit" disabled={isSubmitting || !sources.length || !targets.length}>
-                新增任务
+      <DataTable
+        emptyText="暂无备份任务"
+        title="备份任务列表"
+        description="配置 Cron 计划，支持手动触发执行。"
+        action={
+          <Button
+            type="button"
+            onClick={() => setOpen(true)}
+            disabled={isSubmitting || !sources.length || !targets.length}
+          >
+            新建备份任务
+          </Button>
+        }
+        headers={["名称", "数据源", "数据库", "目标", "计划", "启用", "操作"]}
+        rows={jobs.map((job) => {
+          const isCurrentJobRunning = activeRun?.backupJobId === job.id && isRunInProgress(activeRun);
+          return {
+            key: job.id,
+            cells: [
+              <span className="font-medium">{job.name}</span>,
+              sourceNames[job.databaseConnectionId] || job.databaseConnectionId,
+              job.databaseName,
+              targetNames[job.backupTargetId] || job.backupTargetId,
+              <span className="font-mono text-xs">{job.schedule}</span>,
+              <Badge variant={job.enabled ? "success" : "secondary"}>{job.enabled ? "是" : "否"}</Badge>,
+              <div className="action-cell">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => onRun(job.id)}
+                  disabled={isSubmitting || isCurrentJobRunning}
+                >
+                  <Play className={isCurrentJobRunning ? "size-4 animate-pulse" : "size-4"} />
+                  {isCurrentJobRunning ? "执行中" : "立即执行"}
+                </Button>
+                <IconButton label="删除备份任务" disabled={isSubmitting} onClick={() => onDelete(job)} />
+              </div>,
+            ],
+          };
+        })}
+      />
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>新建备份任务</DialogTitle>
+            <DialogDescription>选择数据源和目标后，可配置 Cron 计划并支持手动触发。</DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[70vh]">
+            <form
+              className="form-grid"
+              id="create-job-form"
+              onSubmit={async (event) => {
+                const ok = await onSubmit(event);
+                if (ok) setOpen(false);
+              }}
+            >
+              <Field label="任务名称">
+                <Input name="name" placeholder="每日生产库备份" required />
+              </Field>
+              <Field label="数据源">
+                <Select name="databaseConnectionId" required>
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择数据源" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sources.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="备份数据库">
+                <Input name="databaseName" placeholder="业务库名" required />
+              </Field>
+              <Field label="备份目标">
+                <Select name="backupTargetId" required>
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择备份目标" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {targets.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Cron 计划">
+                <Input name="schedule" placeholder="0 0 2 * * *" defaultValue="0 0 2 * * *" required />
+              </Field>
+              <Field label="压缩方式">
+                <Select name="compression" defaultValue="gzip">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gzip">gzip</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="远端保留天数">
+                <Input name="remoteRetentionDays" type="number" defaultValue="30" required />
+              </Field>
+              <Field label="本地保留天数">
+                <Input name="localRetentionDays" type="number" defaultValue="7" required />
+              </Field>
+              <label className="checkbox-field">
+                <Checkbox name="enabled" defaultChecked />
+                <span>启用任务</span>
+              </label>
+            </form>
+          </ScrollArea>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" disabled={isSubmitting}>
+                取消
               </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardContent className="p-0">
-          {jobs.length ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {["名称", "数据源", "数据库", "目标", "计划", "启用", "操作"].map((header) => (
-                    <TableHead key={header}>{header}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {jobs.map((job) => {
-                  const isCurrentJobRunning = activeRun?.backupJobId === job.id && isRunInProgress(activeRun);
-                  return (
-                    <TableRow key={job.id}>
-                      <TableCell className="font-medium">{job.name}</TableCell>
-                      <TableCell>{sourceNames[job.databaseConnectionId] || job.databaseConnectionId}</TableCell>
-                      <TableCell>{job.databaseName}</TableCell>
-                      <TableCell>{targetNames[job.backupTargetId] || job.backupTargetId}</TableCell>
-                      <TableCell className="font-mono text-xs">{job.schedule}</TableCell>
-                      <TableCell>
-                        <Badge variant={job.enabled ? "success" : "secondary"}>{job.enabled ? "是" : "否"}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="action-cell">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => onRun(job.id)}
-                            disabled={isSubmitting || isCurrentJobRunning}
-                          >
-                            <Play className={isCurrentJobRunning ? "size-4 animate-pulse" : "size-4"} />
-                            {isCurrentJobRunning ? "执行中" : "立即执行"}
-                          </Button>
-                          <IconButton label="删除备份任务" disabled={isSubmitting} onClick={() => onDelete(job)} />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          ) : (
-            <EmptyState text="暂无备份任务" />
-          )}
-        </CardContent>
-      </Card>
+            </DialogClose>
+            <Button type="submit" form="create-job-form" disabled={isSubmitting}>
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
@@ -937,47 +1000,32 @@ function RunsPanel({
 
   return (
     <section className="panel">
-      <Card>
-        <CardContent className="p-0">
-          {runs.length ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {["任务", "状态", "阶段", "开始时间", "结束时间", "错误", "日志"].map((header) => (
-                    <TableHead key={header}>{header}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {runs.map((run) => (
-                  <TableRow key={run.id} data-state={selectedRunId === run.id ? "selected" : undefined}>
-                    <TableCell className="font-medium">{jobNames[run.backupJobId] || run.backupJobId}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={run.status} />
-                    </TableCell>
-                    <TableCell>{run.stage}</TableCell>
-                    <TableCell>{formatDate(run.startedAt)}</TableCell>
-                    <TableCell>{formatDate(run.finishedAt)}</TableCell>
-                    <TableCell className="error-cell">{run.errorMessage || ""}</TableCell>
-                    <TableCell>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={selectedRunId === run.id ? "default" : "outline"}
-                        onClick={() => onLoadLogs(run.id)}
-                      >
-                        查看
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <EmptyState text="暂无运行记录" />
-          )}
-        </CardContent>
-      </Card>
+      <DataTable
+        emptyText="暂无运行记录"
+        title="运行记录"
+        description="查看执行结果并选择一条记录加载阶段日志。"
+        headers={["任务", "状态", "阶段", "开始时间", "结束时间", "错误", "日志"]}
+        rows={runs.map((run) => ({
+          key: run.id,
+          rowState: selectedRunId === run.id ? "selected" : undefined,
+          cells: [
+            <span className="font-medium">{jobNames[run.backupJobId] || run.backupJobId}</span>,
+            <StatusBadge status={run.status} />,
+            stageLabel(run.stage),
+            formatDate(run.startedAt),
+            formatDate(run.finishedAt),
+            <span className="error-cell">{run.errorMessage || ""}</span>,
+            <Button
+              type="button"
+              size="sm"
+              variant={selectedRunId === run.id ? "default" : "outline"}
+              onClick={() => onLoadLogs(run.id)}
+            >
+              查看
+            </Button>,
+          ],
+        }))}
+      />
       <Card>
         <CardHeader>
           <CardTitle>运行日志</CardTitle>
@@ -1032,17 +1080,39 @@ function RunSummary({ run }: { run: BackupRun }) {
   );
 }
 
+type DataTableRow = {
+  key: string | number;
+  cells: ReactNode[];
+  rowState?: "selected";
+  onClick?: () => void;
+};
+
 function DataTable({
+  title,
+  description,
+  action,
   emptyText,
   headers,
   rows,
 }: {
+  title?: string;
+  description?: string;
+  action?: ReactNode;
   emptyText: string;
   headers: string[];
-  rows: ReactNode[][];
+  rows: DataTableRow[];
 }) {
   return (
     <Card>
+      {(title || description || action) && (
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div className="min-w-0">
+            {title && <CardTitle>{title}</CardTitle>}
+            {description && <CardDescription>{description}</CardDescription>}
+          </div>
+          {action && <div className="shrink-0">{action}</div>}
+        </CardHeader>
+      )}
       <CardContent className="p-0">
         {rows.length ? (
           <Table>
@@ -1054,9 +1124,9 @@ function DataTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row, rowIndex) => (
-                <TableRow key={rowIndex}>
-                  {row.map((cell, cellIndex) => (
+              {rows.map((row) => (
+                <TableRow key={row.key} data-state={row.rowState} onClick={row.onClick}>
+                  {row.cells.map((cell, cellIndex) => (
                     <TableCell key={cellIndex}>{cell}</TableCell>
                   ))}
                 </TableRow>
