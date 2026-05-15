@@ -516,4 +516,30 @@ svg {
     align-items: stretch;
     flex-direction: column;
   }
+
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-bar > * {
+    width: 100%;
+  }
+
+  .table-scroll-wrapper {
+    overflow-x: auto;
+  }
+
+  .login-page {
+    padding: 16px;
+  }
+
+  .login-panel {
+    width: 100%;
+  }
+
+  [data-radix-dialog-content] {
+    max-width: calc(100% - 32px) !important;
+    margin: 16px !important;
+  }
 }
