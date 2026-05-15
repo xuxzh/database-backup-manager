@@ -26,9 +26,9 @@ export function DataTable({
   rows: DataTableRow[];
 }) {
   return (
-    <Card>
+    <Card className="data-table-card">
       {(title || description || action) && (
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <CardHeader className="data-table-header">
           <div className="min-w-0">
             {title && <CardTitle>{title}</CardTitle>}
             {description && <CardDescription>{description}</CardDescription>}
@@ -36,21 +36,35 @@ export function DataTable({
           {action && <div className="shrink-0">{action}</div>}
         </CardHeader>
       )}
-      <CardContent className="p-0 overflow-x-auto">
+      <CardContent className="data-table-content">
         {rows.length ? (
           <Table>
-            <TableHeader className="sticky top-0 bg-card z-10">
+            <TableHeader className="sticky top-0 z-10 bg-muted/45">
               <TableRow>
-                {headers.map((header) => (
-                  <TableHead key={header}>{header}</TableHead>
+                {headers.map((header, headerIndex) => (
+                  <TableHead className={headerIndex === headers.length - 1 ? "text-right" : undefined} key={header}>
+                    {header}
+                  </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((row) => (
-                <TableRow key={row.key} data-state={row.rowState} onClick={row.onClick}>
+                <TableRow
+                  className={row.onClick ? "cursor-pointer" : undefined}
+                  key={row.key}
+                  data-state={row.rowState}
+                  onClick={row.onClick}
+                >
                   {row.cells.map((cell, cellIndex) => (
-                    <TableCell key={cellIndex} className="whitespace-nowrap overflow-hidden text-ellipsis max-w-[320px]">
+                    <TableCell
+                      key={cellIndex}
+                      className={
+                        cellIndex === row.cells.length - 1
+                          ? "whitespace-nowrap text-right"
+                          : "max-w-[320px] overflow-hidden text-ellipsis whitespace-nowrap"
+                      }
+                    >
                       {cell}
                     </TableCell>
                   ))}

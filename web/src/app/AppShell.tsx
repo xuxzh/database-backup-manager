@@ -1,11 +1,10 @@
 import type { ReactNode } from "react";
 import { tabMeta, tabs } from "./navigation";
-import { LogOut, RefreshCw } from "lucide-react";
+import { LogOut, RefreshCw, Server } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Server, ShieldCheck } from "lucide-react";
 
 export { tabs, tabMeta };
 
@@ -77,7 +76,7 @@ export function AppShell({
             </div>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button type="button" variant="outline" onClick={onRefresh} disabled={isLoading}>
+                <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isLoading}>
                   <RefreshCw className={isLoading ? "size-4 animate-spin" : "size-4"} />
                   {isLoading ? "刷新中" : "刷新"}
                 </Button>

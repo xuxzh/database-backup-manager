@@ -1,29 +1,29 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: hsl(210 24% 97%);
+  --color-background: hsl(210 20% 98%);
   --color-foreground: hsl(222 47% 11%);
   --color-card: hsl(0 0% 100%);
   --color-card-foreground: hsl(222 47% 11%);
   --color-popover: hsl(0 0% 100%);
   --color-popover-foreground: hsl(222 47% 11%);
-  --color-primary: hsl(215 78% 32%);
+  --color-primary: hsl(221 83% 53%);
   --color-primary-foreground: hsl(210 40% 98%);
-  --color-secondary: hsl(210 30% 94%);
-  --color-secondary-foreground: hsl(215 30% 22%);
-  --color-muted: hsl(210 27% 94%);
-  --color-muted-foreground: hsl(215 16% 42%);
-  --color-accent: hsl(199 74% 92%);
-  --color-accent-foreground: hsl(202 80% 24%);
+  --color-secondary: hsl(210 40% 96.1%);
+  --color-secondary-foreground: hsl(222 47% 11%);
+  --color-muted: hsl(210 40% 96.1%);
+  --color-muted-foreground: hsl(215 16% 47%);
+  --color-accent: hsl(210 40% 96.1%);
+  --color-accent-foreground: hsl(222 47% 11%);
   --color-destructive: hsl(0 72% 45%);
   --color-destructive-foreground: hsl(0 0% 100%);
-  --color-border: hsl(214 25% 87%);
-  --color-input: hsl(214 25% 82%);
-  --color-ring: hsl(199 89% 42%);
-  --color-sidebar: hsl(219 44% 15%);
-  --color-sidebar-foreground: hsl(214 32% 91%);
-  --color-sidebar-muted: hsl(215 20% 68%);
-  --color-sidebar-border: hsl(218 35% 24%);
+  --color-border: hsl(214 32% 91%);
+  --color-input: hsl(214 32% 91%);
+  --color-ring: hsl(221 83% 53%);
+  --color-sidebar: hsl(0 0% 100%);
+  --color-sidebar-foreground: hsl(222 47% 11%);
+  --color-sidebar-muted: hsl(215 16% 47%);
+  --color-sidebar-border: hsl(214 32% 91%);
   --radius-lg: 0.5rem;
   --radius-md: 0.375rem;
   --radius-sm: 0.25rem;
@@ -41,6 +41,10 @@
 
 * {
   box-sizing: border-box;
+}
+
+:where(*, ::before, ::after) {
+  border-color: var(--color-border);
 }
 
 body {
@@ -94,7 +98,7 @@ svg {
 .app-shell {
   display: grid;
   min-height: 100vh;
-  grid-template-columns: 268px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -103,11 +107,11 @@ svg {
   display: flex;
   height: 100vh;
   flex-direction: column;
-  gap: 22px;
+  gap: 20px;
   border-right: 1px solid var(--color-sidebar-border);
   background: var(--color-sidebar);
   color: var(--color-sidebar-foreground);
-  padding: 22px;
+  padding: 18px;
 }
 
 .brand {
@@ -118,18 +122,19 @@ svg {
 
 .brand-mark {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   place-items: center;
   border-radius: 8px;
-  background: hsl(42 96% 58%);
-  color: hsl(222 47% 11%);
+  border: 1px solid var(--color-border);
+  background: var(--color-muted);
+  color: var(--color-primary);
 }
 
 .brand h1 {
   margin: 0;
-  font-size: 17px;
-  font-weight: 750;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .brand p {
@@ -140,18 +145,20 @@ svg {
 
 .sidebar nav {
   display: grid;
-  gap: 8px;
+  gap: 4px;
 }
 
 .nav-button {
   justify-content: flex-start;
+  height: 36px;
   color: var(--color-sidebar-foreground);
+  font-weight: 500;
 }
 
 .nav-button:hover,
 .nav-button[data-active="true"] {
-  background: rgb(255 255 255 / 10%);
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
 }
 
 .nav-icon,
@@ -169,18 +176,19 @@ svg {
 
 .logout-button {
   justify-content: flex-start;
+  height: 36px;
   margin-top: auto;
   color: var(--color-sidebar-foreground);
 }
 
 .logout-button:hover {
-  background: rgb(255 255 255 / 10%);
-  color: #fff;
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
 }
 
 .workspace {
   min-width: 0;
-  padding: 28px;
+  padding: 24px;
 }
 
 .topbar {
@@ -203,8 +211,8 @@ svg {
 
 .topbar h2 {
   margin: 0;
-  font-size: 26px;
-  font-weight: 760;
+  font-size: 24px;
+  font-weight: 700;
   line-height: 1.2;
 }
 
@@ -215,7 +223,33 @@ svg {
 
 .panel {
   display: grid;
-  gap: 18px;
+  gap: 16px;
+}
+
+.data-table-card {
+  overflow: hidden;
+}
+
+.data-table-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.data-table-content {
+  overflow-x: auto;
+  padding: 0;
+}
+
+.data-table-content table {
+  min-width: 720px;
+}
+
+.data-table-header button {
+  height: 32px;
 }
 
 .stack-form {
@@ -344,12 +378,6 @@ svg {
 .stat-card span {
   color: var(--color-muted-foreground);
   font-size: 13px;
-}
-
-.action-cell {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .active-run-card {
@@ -482,6 +510,7 @@ svg {
 
 .action-cell {
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
   white-space: nowrap;
 }
@@ -530,6 +559,11 @@ svg {
   }
 
   .topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .data-table-header {
     align-items: stretch;
     flex-direction: column;
   }
