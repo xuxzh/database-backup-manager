@@ -1,19 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
-import { ApiError, apiRequest } from "./api/client";
-import type {
-  BackupJob,
-  BackupRun,
-  BackupRunLog,
-  BackupTarget,
-  DashboardStats,
-  DatabaseConnection,
-  UpsertBackupJob,
-  UpsertBackupTarget,
-  UpsertDatabaseConnection,
-} from "./types/api";
+import type { BackupJob, BackupRun, BackupRunLog, BackupTarget, DashboardStats, DatabaseConnection } from "./types/api";
 import { AppShell } from "./app/AppShell";
-import { tabMeta } from "./app/navigation";
 import { LoginPage } from "./features/auth/LoginPage";
 import { DashboardPanel } from "./features/dashboard/DashboardPanel";
 import { SourcesPanel } from "./features/sources/SourcesPanel";
@@ -23,6 +10,11 @@ import { RunsPanel } from "./features/runs/RunsPanel";
 import { DeleteDialog, type DeleteTarget } from "./shared/components/DeleteDialog";
 import { stringField, optionalStringField, numberField } from "./shared/utils/form";
 import { errorMessage } from "./shared/utils/error";
+import { toUpsertDatabaseConnection } from "./features/sources/sourceForm";
+import { toUpsertBackupTarget } from "./features/targets/targetForm";
+import { toUpsertBackupJob } from "./features/jobs/jobForm";
+import { ApiError, apiRequest } from "./api/client";
+import { login } from "./shared/api/auth";
 
 type TabKey = "dashboard" | "sources" | "targets" | "jobs" | "runs";
 type SubmitResult = Promise<boolean>;
@@ -157,12 +149,9 @@ function App() {
     setIsSubmitting(true);
     const form = new FormData(event.currentTarget);
     try {
-      const response = await apiRequest<{ token: string }>("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({
-          username: stringField(form, "username"),
-          password: stringField(form, "password"),
-        }),
+      const response = await login({
+        username: stringField(form, "username"),
+        password: stringField(form, "password"),
       });
       localStorage.setItem("token", response.token);
       setToken(response.token);
@@ -177,16 +166,7 @@ function App() {
   async function handleCreateSource(event: FormEvent<HTMLFormElement>): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const payload: UpsertDatabaseConnection = {
-      name: stringField(form, "name"),
-      dbType: stringField(form, "dbType"),
-      host: stringField(form, "host"),
-      port: numberField(form, "port"),
-      username: stringField(form, "username"),
-      password: stringField(form, "password"),
-      databaseName: optionalStringField(form, "databaseName"),
-      configJson: {},
-    };
+    const payload = toUpsertDatabaseConnection(form);
     const ok = await submitForm(event.currentTarget, () =>
       request<DatabaseConnection>("/sources", {
         method: "POST",
@@ -200,17 +180,7 @@ function App() {
   async function handleCreateTarget(event: FormEvent<HTMLFormElement>): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const payload: UpsertBackupTarget = {
-      name: stringField(form, "name"),
-      targetType: "ssh",
-      host: stringField(form, "host"),
-      port: numberField(form, "port"),
-      username: stringField(form, "username"),
-      authMethod: stringField(form, "authMethod"),
-      secret: stringField(form, "secret"),
-      baseDir: stringField(form, "baseDir"),
-      configJson: {},
-    };
+    const payload = toUpsertBackupTarget(form);
     const ok = await submitForm(event.currentTarget, () =>
       request<BackupTarget>("/targets", {
         method: "POST",
@@ -224,17 +194,7 @@ function App() {
   async function handleCreateJob(event: FormEvent<HTMLFormElement>): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const payload: UpsertBackupJob = {
-      name: stringField(form, "name"),
-      databaseConnectionId: stringField(form, "databaseConnectionId"),
-      databaseName: stringField(form, "databaseName"),
-      backupTargetId: stringField(form, "backupTargetId"),
-      schedule: stringField(form, "schedule"),
-      compression: stringField(form, "compression"),
-      remoteRetentionDays: numberField(form, "remoteRetentionDays"),
-      localRetentionDays: numberField(form, "localRetentionDays"),
-      enabled: form.get("enabled") === "on",
-    };
+    const payload = toUpsertBackupJob(form);
     const ok = await submitForm(event.currentTarget, () =>
       request<BackupJob>("/jobs", {
         method: "POST",
