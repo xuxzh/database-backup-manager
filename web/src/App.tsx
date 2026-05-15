@@ -5,6 +5,7 @@ import {
   Database,
   HardDrive,
   History,
+  ListChecks,
   LogOut,
   Play,
   RefreshCw,
@@ -91,14 +92,21 @@ function App() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [runLogs, setRunLogs] = useState<BackupRunLog[]>([]);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
+
+  const activeRun = useMemo(
+    () => data.runs.find((run) => run.id === activeRunId) ?? null,
+    [activeRunId, data.runs],
+  );
 
   const logout = useCallback(() => {
     localStorage.removeItem("token");
     setToken(null);
     setData(emptyData);
     setRunLogs([]);
+    setActiveRunId(null);
     setSelectedRunId(null);
   }, []);
 
@@ -117,7 +125,7 @@ function App() {
   );
 
   const refresh = useCallback(async () => {
-    if (!token) return;
+    if (!token) return null;
     setIsLoading(true);
     setError("");
     try {
@@ -128,9 +136,12 @@ function App() {
         request<BackupJob[]>("/jobs"),
         request<BackupRun[]>("/runs"),
       ]);
-      setData({ dashboard, sources, targets, jobs, runs });
+      const nextData = { dashboard, sources, targets, jobs, runs };
+      setData(nextData);
+      return nextData;
     } catch (refreshError) {
       setError(errorMessage(refreshError));
+      return null;
     } finally {
       setIsLoading(false);
     }
@@ -139,6 +150,45 @@ function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!token || !activeRunId || !isRunInProgress(activeRun)) return;
+
+    let timeoutId: number | undefined;
+    let cancelled = false;
+
+    async function pollRun() {
+      try {
+        const [dashboard, runs, logs] = await Promise.all([
+          request<DashboardStats>("/dashboard"),
+          request<BackupRun[]>("/runs"),
+          request<BackupRunLog[]>(`/runs/${activeRunId}/logs`),
+        ]);
+        if (cancelled) return;
+
+        setData((current) => ({ ...current, dashboard, runs }));
+        setRunLogs(logs);
+
+        const latestRun = runs.find((run) => run.id === activeRunId);
+        if (latestRun && !isRunInProgress(latestRun)) {
+          setNotice(latestRun.status === "Success" ? "备份已完成" : "备份执行失败，请查看运行日志");
+          return;
+        }
+      } catch (pollError) {
+        if (!cancelled) setError(errorMessage(pollError));
+      }
+
+      if (!cancelled) {
+        timeoutId = window.setTimeout(pollRun, 2000);
+      }
+    }
+
+    timeoutId = window.setTimeout(pollRun, 800);
+    return () => {
+      cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [activeRun, activeRunId, request, token]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -251,9 +301,21 @@ function App() {
     setError("");
     setNotice("");
     try {
-      await request<BackupRun>(`/jobs/${jobId}/run`, { method: "POST" });
-      setNotice("任务已提交执行");
-      await refresh();
+      const run = await request<BackupRun>(`/jobs/${jobId}/run`, { method: "POST" });
+      setActiveRunId(run.id);
+      setSelectedRunId(run.id);
+      setRunLogs([]);
+      setData((current) => ({
+        ...current,
+        runs: [run, ...current.runs.filter((item) => item.id !== run.id)],
+      }));
+      setNotice("任务已提交，正在等待执行结果");
+      const refreshed = await refresh();
+      const latestRun = refreshed?.runs.find((item) => item.id === run.id);
+      if (latestRun && !isRunInProgress(latestRun)) {
+        setNotice(latestRun.status === "Success" ? "备份已完成" : "备份执行失败，请查看运行日志");
+        setRunLogs(await request<BackupRunLog[]>(`/runs/${run.id}/logs`));
+      }
     } catch (runError) {
       setError(errorMessage(runError));
     } finally {
@@ -384,6 +446,8 @@ function App() {
           )}
           {activeTab === "jobs" && (
             <JobsPanel
+              activeRun={activeRun}
+              activeRunLogs={selectedRunId === activeRunId ? runLogs : []}
               isSubmitting={isSubmitting}
               jobs={data.jobs}
               sources={data.sources}
@@ -397,6 +461,10 @@ function App() {
               }
               onRun={runJob}
               onSubmit={handleCreateJob}
+              onViewRun={(runId) => {
+                setActiveTab("runs");
+                loadRunLogs(runId);
+              }}
             />
           )}
           {activeTab === "runs" && (
@@ -654,6 +722,8 @@ function TargetsPanel({
 }
 
 function JobsPanel({
+  activeRun,
+  activeRunLogs,
   isSubmitting,
   jobs,
   sources,
@@ -661,7 +731,10 @@ function JobsPanel({
   onDelete,
   onRun,
   onSubmit,
+  onViewRun,
 }: {
+  activeRun: BackupRun | null;
+  activeRunLogs: BackupRunLog[];
   isSubmitting: boolean;
   jobs: BackupJob[];
   sources: DatabaseConnection[];
@@ -669,12 +742,59 @@ function JobsPanel({
   onDelete: (job: BackupJob) => void;
   onRun: (jobId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onViewRun: (runId: string) => void;
 }) {
   const sourceNames = useMemo(() => mapNames(sources), [sources]);
   const targetNames = useMemo(() => mapNames(targets), [targets]);
+  const activeJobName = activeRun ? jobs.find((job) => job.id === activeRun.backupJobId)?.name : null;
 
   return (
     <section className="panel">
+      {activeRun && (
+        <Card className="active-run-card" data-state={activeRun.status.toLowerCase()}>
+          <CardHeader>
+            <div className="active-run-heading">
+              <div>
+                <CardTitle>本次手动执行</CardTitle>
+                <CardDescription>
+                  {activeJobName || activeRun.backupJobId} · {formatDate(activeRun.startedAt)}
+                </CardDescription>
+              </div>
+              <StatusBadge status={activeRun.status} />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="active-run-grid">
+              <div>
+                <span>当前阶段</span>
+                <strong>{stageLabel(activeRun.stage)}</strong>
+              </div>
+              <div>
+                <span>耗时</span>
+                <strong>{formatDuration(activeRun.durationMs) || runningDuration(activeRun)}</strong>
+              </div>
+              <div>
+                <span>备份文件</span>
+                <strong>{activeRun.archiveFileName || "生成中"}</strong>
+              </div>
+              <div>
+                <span>远端路径</span>
+                <strong>{activeRun.remotePath || "等待上传"}</strong>
+              </div>
+            </div>
+            {activeRun.errorMessage && <Alert variant="destructive">{activeRun.errorMessage}</Alert>}
+            <div className="active-run-footer">
+              <div className="active-run-log">
+                <ListChecks className="size-4" />
+                <span>{latestRunLogText(activeRunLogs)}</span>
+              </div>
+              <Button type="button" size="sm" variant="outline" onClick={() => onViewRun(activeRun.id)}>
+                查看完整日志
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>新增备份任务</CardTitle>
@@ -759,27 +879,36 @@ function JobsPanel({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {jobs.map((job) => (
-                  <TableRow key={job.id}>
-                    <TableCell className="font-medium">{job.name}</TableCell>
-                    <TableCell>{sourceNames[job.databaseConnectionId] || job.databaseConnectionId}</TableCell>
-                    <TableCell>{job.databaseName}</TableCell>
-                    <TableCell>{targetNames[job.backupTargetId] || job.backupTargetId}</TableCell>
-                    <TableCell className="font-mono text-xs">{job.schedule}</TableCell>
-                    <TableCell>
-                      <Badge variant={job.enabled ? "success" : "secondary"}>{job.enabled ? "是" : "否"}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="action-cell">
-                        <Button type="button" size="sm" variant="secondary" onClick={() => onRun(job.id)} disabled={isSubmitting}>
-                          <Play className="size-4" />
-                          立即执行
-                        </Button>
-                        <IconButton label="删除备份任务" disabled={isSubmitting} onClick={() => onDelete(job)} />
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {jobs.map((job) => {
+                  const isCurrentJobRunning = activeRun?.backupJobId === job.id && isRunInProgress(activeRun);
+                  return (
+                    <TableRow key={job.id}>
+                      <TableCell className="font-medium">{job.name}</TableCell>
+                      <TableCell>{sourceNames[job.databaseConnectionId] || job.databaseConnectionId}</TableCell>
+                      <TableCell>{job.databaseName}</TableCell>
+                      <TableCell>{targetNames[job.backupTargetId] || job.backupTargetId}</TableCell>
+                      <TableCell className="font-mono text-xs">{job.schedule}</TableCell>
+                      <TableCell>
+                        <Badge variant={job.enabled ? "success" : "secondary"}>{job.enabled ? "是" : "否"}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="action-cell">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => onRun(job.id)}
+                            disabled={isSubmitting || isCurrentJobRunning}
+                          >
+                            <Play className={isCurrentJobRunning ? "size-4 animate-pulse" : "size-4"} />
+                            {isCurrentJobRunning ? "执行中" : "立即执行"}
+                          </Button>
+                          <IconButton label="删除备份任务" disabled={isSubmitting} onClick={() => onDelete(job)} />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           ) : (
@@ -1017,6 +1146,49 @@ function StatusBadge({ status }: { status: BackupRun["status"] }) {
   if (normalized === "failed") return <Badge variant="destructive">{status}</Badge>;
   if (normalized === "running") return <Badge variant="info">{status}</Badge>;
   return <Badge variant="warning">{status}</Badge>;
+}
+
+function isRunInProgress(run: BackupRun | null) {
+  return run?.status === "Pending" || run?.status === "Running";
+}
+
+function stageLabel(stage: string) {
+  const labels: Record<string, string> = {
+    pending: "等待调度",
+    prepare: "准备上下文",
+    dump: "导出数据库",
+    compress: "压缩备份文件",
+    checksum: "计算校验值",
+    upload: "上传远端",
+    verify_remote: "验证远端文件",
+    local_cleanup: "清理本地文件",
+    done: "执行完成",
+    failed: "执行失败",
+  };
+  return labels[stage] || stage;
+}
+
+function latestRunLogText(logs: BackupRunLog[]) {
+  const latest = logs[logs.length - 1];
+  if (!latest) return "正在等待第一条执行日志";
+  return `${stageLabel(latest.stage)}：${latest.message}`;
+}
+
+function formatDuration(value: number | null) {
+  if (value == null) return "";
+  if (value < 1000) return `${value}ms`;
+  const seconds = Math.round(value / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = seconds % 60;
+  return `${minutes}m ${restSeconds}s`;
+}
+
+function runningDuration(run: BackupRun) {
+  if (!isRunInProgress(run)) return "";
+  const startedAt = new Date(run.startedAt).getTime();
+  if (Number.isNaN(startedAt)) return "进行中";
+  return formatDuration(Date.now() - startedAt) || "进行中";
 }
 
 function mapNames(items: Array<{ id: string; name: string }>) {

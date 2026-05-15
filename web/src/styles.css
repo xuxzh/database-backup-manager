@@ -316,6 +316,76 @@ svg {
   gap: 8px;
 }
 
+.active-run-card {
+  border-color: hsl(199 89% 42% / 40%);
+  background: linear-gradient(180deg, hsl(199 74% 96%), #fff 64%);
+}
+
+.active-run-card[data-state="success"] {
+  border-color: hsl(151 70% 42% / 42%);
+  background: linear-gradient(180deg, hsl(151 70% 96%), #fff 64%);
+}
+
+.active-run-card[data-state="failed"] {
+  border-color: hsl(0 72% 45% / 36%);
+  background: linear-gradient(180deg, hsl(0 72% 97%), #fff 64%);
+}
+
+.active-run-heading,
+.active-run-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.active-run-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.active-run-grid div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 72%);
+  padding: 12px;
+}
+
+.active-run-grid span {
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.active-run-grid strong {
+  min-height: 24px;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.active-run-footer {
+  align-items: center;
+  margin-top: 12px;
+}
+
+.active-run-log {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  color: var(--color-muted-foreground);
+  font-size: 14px;
+}
+
+.active-run-log span {
+  overflow-wrap: anywhere;
+}
+
 .empty-state {
   margin: 0;
   padding: 22px;
@@ -414,7 +484,14 @@ svg {
 
   .stats-grid,
   .form-grid,
+  .active-run-grid,
   .run-summary {
     grid-template-columns: 1fr;
+  }
+
+  .active-run-heading,
+  .active-run-footer {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
