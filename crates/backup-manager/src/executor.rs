@@ -118,12 +118,14 @@ impl BackupExecutor {
 
         let run_dir = self.backups_dir.join(&job.id).join(&run.id);
         fs::create_dir_all(&run_dir).await?;
-        let timestamp = Utc::now().format("%Y-%m-%d_%H%M%S").to_string();
-        let safe_db = sanitize(&job.database_name);
+        let now = Utc::now();
+        let backup_date = now.format("%Y-%m-%d").to_string();
+        let timestamp = now.format("%Y-%m-%d_%H%M%S").to_string();
+        let database_slug = path_slug(&job.database_name);
         let raw_file_name = if source.db_type == "postgres" {
-            format!("{safe_db}_{timestamp}.dump")
+            format!("{database_slug}_{timestamp}.dump")
         } else {
-            format!("{safe_db}_{timestamp}.sql")
+            format!("{database_slug}_{timestamp}.sql")
         };
         let raw_path = run_dir.join(&raw_file_name);
         source.password = Some(self.crypto.decrypt(&source.encrypted_password)?);
@@ -206,10 +208,10 @@ impl BackupExecutor {
         self.stage(run, "upload", "上传备份文件到远端目标").await?;
         let remote_dir = format!(
             "{}/{}/{}/{}",
-            sanitize(&source.host),
-            source.db_type,
-            sanitize(&job.name),
-            Utc::now().format("%Y-%m-%d")
+            path_slug(&source.host),
+            path_slug(&source.db_type),
+            database_slug,
+            backup_date
         );
         let upload = target_adapter
             .upload(UploadRequest {
@@ -262,17 +264,27 @@ fn current_stage_from_error(message: &str) -> &str {
         .unwrap_or("failed")
 }
 
-fn sanitize(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-                ch
-            } else {
-                '-'
+fn path_slug(value: &str) -> String {
+    let mut output = String::new();
+    let mut pending_separator = false;
+
+    for ch in value.trim().chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            if pending_separator && !output.is_empty() {
+                output.push('-');
             }
-        })
-        .collect()
+            output.push(ch);
+            pending_separator = false;
+        } else {
+            pending_separator = !output.is_empty();
+        }
+    }
+
+    if output.is_empty() {
+        "unnamed".to_string()
+    } else {
+        output
+    }
 }
 
 fn dump_tool_env_name(db_type: &str) -> &'static str {
@@ -300,5 +312,19 @@ fn truncate(value: &str, max: usize) -> String {
         value.to_string()
     } else {
         format!("{}...", &value[..max])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_slug;
+
+    #[test]
+    fn path_slug_normalizes_path_segments() {
+        assert_eq!(path_slug("192.168.0.135"), "192-168-0-135");
+        assert_eq!(path_slug(" 192.168.0.135 "), "192-168-0-135");
+        assert_eq!(path_slug("135AAC---"), "135AAC");
+        assert_eq!(path_slug("RH_AAC"), "RH_AAC");
+        assert_eq!(path_slug("---...---"), "unnamed");
     }
 }
