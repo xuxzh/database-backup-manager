@@ -229,6 +229,12 @@ svg {
   min-width: 0;
 }
 
+.field-error {
+  font-size: 0.75rem;
+  color: hsl(0 72% 45%);
+  margin: 0;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(160px, 1fr));

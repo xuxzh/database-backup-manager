@@ -26,6 +26,7 @@ import { IconButton } from "./IconButton";
 import { stageLabel, latestRunLogText, isRunInProgress, runningDuration } from "@/shared/formatters/run";
 import { formatDate } from "@/shared/formatters/date";
 import { formatDuration } from "@/shared/formatters/duration";
+import { validatePort, validateRetentionDays, validateRequiredString, validateCronExpression } from "@/shared/utils/validators";
 
 type SubmitResult = Promise<boolean>;
 
@@ -57,9 +58,39 @@ export function JobsPanel({
   onViewRun: (runId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [globalError, setGlobalError] = useState("");
   const sourceNames = useMemo(() => mapNames(sources), [sources]);
   const targetNames = useMemo(() => mapNames(targets), [targets]);
   const activeJobName = activeRun ? jobs.find((job) => job.id === activeRun.backupJobId)?.name : null;
+
+  function validateForm(form: FormData): boolean {
+    const errors: Record<string, string> = {};
+    const nameResult = validateRequiredString(form.get("name")?.toString() || "", "任务名称");
+    if (!nameResult.valid) errors.name = nameResult.message!;
+    const dbNameResult = validateRequiredString(form.get("databaseName")?.toString() || "", "备份数据库");
+    if (!dbNameResult.valid) errors.databaseName = dbNameResult.message!;
+    const cronResult = validateCronExpression(form.get("schedule")?.toString() || "");
+    if (!cronResult.valid) errors.schedule = cronResult.message!;
+    const remoteDays = Number(form.get("remoteRetentionDays"));
+    const remoteResult = validateRetentionDays(remoteDays);
+    if (!remoteResult.valid) errors.remoteRetentionDays = remoteResult.message!;
+    const localDays = Number(form.get("localRetentionDays"));
+    const localResult = validateRetentionDays(localDays);
+    if (!localResult.valid) errors.localRetentionDays = localResult.message!;
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): SubmitResult {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setGlobalError("");
+    if (!validateForm(form)) return false;
+    const ok = await onSubmit(event);
+    if (ok) setOpen(false);
+    return ok;
+  }
 
   return (
     <section className="panel">
@@ -157,17 +188,18 @@ export function JobsPanel({
             <DialogTitle>新建备份任务</DialogTitle>
             <DialogDescription>选择数据源和目标后，可配置 Cron 计划并支持手动触发。</DialogDescription>
           </DialogHeader>
+          {globalError && (
+            <Alert className="mb-4" variant="destructive">{globalError}</Alert>
+          )}
           <ScrollArea className="max-h-[70vh]">
             <form
               className="form-grid"
               id="create-job-form"
-              onSubmit={async (event) => {
-                const ok = await onSubmit(event);
-                if (ok) setOpen(false);
-              }}
+              onSubmit={handleSubmit}
             >
               <Field label="任务名称">
                 <Input name="name" placeholder="每日生产库备份" required />
+                {fieldErrors.name && <p className="field-error">{fieldErrors.name}</p>}
               </Field>
               <Field label="数据源">
                 <Select name="databaseConnectionId" required>
@@ -185,6 +217,7 @@ export function JobsPanel({
               </Field>
               <Field label="备份数据库">
                 <Input name="databaseName" placeholder="业务库名" required />
+                {fieldErrors.databaseName && <p className="field-error">{fieldErrors.databaseName}</p>}
               </Field>
               <Field label="备份目标">
                 <Select name="backupTargetId" required>
@@ -202,6 +235,7 @@ export function JobsPanel({
               </Field>
               <Field label="Cron 计划">
                 <Input name="schedule" placeholder="0 0 2 * * *" defaultValue="0 0 2 * * *" required />
+                {fieldErrors.schedule && <p className="field-error">{fieldErrors.schedule}</p>}
               </Field>
               <Field label="压缩方式">
                 <Select name="compression" defaultValue="gzip">
@@ -215,9 +249,11 @@ export function JobsPanel({
               </Field>
               <Field label="远端保留天数">
                 <Input name="remoteRetentionDays" type="number" defaultValue="30" required />
+                {fieldErrors.remoteRetentionDays && <p className="field-error">{fieldErrors.remoteRetentionDays}</p>}
               </Field>
               <Field label="本地保留天数">
                 <Input name="localRetentionDays" type="number" defaultValue="7" required />
+                {fieldErrors.localRetentionDays && <p className="field-error">{fieldErrors.localRetentionDays}</p>}
               </Field>
               <label className="checkbox-field">
                 <Checkbox name="enabled" defaultChecked />
