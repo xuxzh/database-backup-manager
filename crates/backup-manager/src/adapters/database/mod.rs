@@ -1,9 +1,14 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    io::ErrorKind,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 use serde_json::json;
-use tokio::process::Command;
+use tokio::{fs, process::Command};
 
 use crate::domain::{BackupJob, ConfigField, ConfigSchema, DatabaseConnection};
 
@@ -92,9 +97,12 @@ impl DatabaseAdapter for MySqlAdapter {
 
     async fn test_connection(&self, config: &DatabaseConnection) -> anyhow::Result<()> {
         self.validate_config(config)?;
+        if config.execution_mode == "remoteSsh" {
+            return run_remote_test(config, build_remote_mysql_test_command(config)).await;
+        }
         let password = config.password.as_deref().unwrap_or_default();
         let port = config.port.to_string();
-        let status = Command::new(tool_program("MYSQLADMIN_PATH", "mysqladmin"))
+        let output = Command::new(tool_program("MYSQLADMIN_PATH", "mysqladmin"))
             .env("MYSQL_PWD", password)
             .args([
                 "-h",
@@ -105,12 +113,13 @@ impl DatabaseAdapter for MySqlAdapter {
                 config.username.trim(),
                 "ping",
             ])
-            .status()
-            .await?;
-        if status.success() {
+            .output()
+            .await
+            .map_err(command_error("mysqladmin", "MYSQLADMIN_PATH"))?;
+        if output.status.success() {
             Ok(())
         } else {
-            bail!("mysqladmin ping failed with status {status}");
+            bail!("mysqladmin ping failed: {}", command_stderr(&output.stderr));
         }
     }
 
@@ -177,6 +186,9 @@ impl DatabaseAdapter for PostgresAdapter {
 
     async fn test_connection(&self, config: &DatabaseConnection) -> anyhow::Result<()> {
         self.validate_config(config)?;
+        if config.execution_mode == "remoteSsh" {
+            return run_remote_test(config, build_remote_postgres_test_command(config)).await;
+        }
         let password = config.password.as_deref().unwrap_or_default();
         let database = config
             .database_name
@@ -185,7 +197,7 @@ impl DatabaseAdapter for PostgresAdapter {
             .filter(|value| !value.is_empty())
             .unwrap_or("postgres");
         let port = config.port.to_string();
-        let status = Command::new(tool_program("PG_ISREADY_PATH", "pg_isready"))
+        let output = Command::new(tool_program("PSQL_PATH", "psql"))
             .env("PGPASSWORD", password)
             .args([
                 "-h",
@@ -196,13 +208,20 @@ impl DatabaseAdapter for PostgresAdapter {
                 config.username.trim(),
                 "-d",
                 database,
+                "-w",
+                "-c",
+                "SELECT 1",
             ])
-            .status()
-            .await?;
-        if status.success() {
+            .output()
+            .await
+            .map_err(command_error("psql", "PSQL_PATH"))?;
+        if output.status.success() {
             Ok(())
         } else {
-            bail!("pg_isready failed with status {status}");
+            bail!(
+                "psql connection test failed: {}",
+                command_stderr(&output.stderr)
+            );
         }
     }
 
@@ -293,12 +312,168 @@ fn tool_program(env_name: &str, default_program: &str) -> String {
         .unwrap_or_else(|| default_program.to_string())
 }
 
+fn command_error(
+    program: &'static str,
+    env_name: &'static str,
+) -> impl Fn(std::io::Error) -> anyhow::Error {
+    move |error| {
+        if error.kind() == ErrorKind::NotFound {
+            anyhow!(
+                "未找到数据库连接测试工具 `{program}`。请在运行环境安装对应数据库客户端，或通过 {env_name} 指定可执行文件绝对路径: {error}"
+            )
+        } else {
+            anyhow!("failed to run {program}: {error}")
+        }
+    }
+}
+
+fn command_stderr(stderr: &[u8]) -> String {
+    let message = String::from_utf8_lossy(stderr).trim().to_string();
+    if message.is_empty() {
+        "no error output".to_string()
+    } else {
+        message
+    }
+}
+
+async fn run_remote_test(
+    config: &DatabaseConnection,
+    remote_command: String,
+) -> anyhow::Result<()> {
+    let auth_method = config.remote_auth_method.as_deref().unwrap_or("key");
+    let identity_file = if auth_method == "key" {
+        Some(write_remote_identity_file(config).await?)
+    } else {
+        None
+    };
+    let mut command = remote_ssh_command(config, identity_file.as_deref())?;
+    command.arg(remote_command);
+    let output = command.output().await;
+    if let Some(path) = identity_file {
+        let _ = fs::remove_file(path).await;
+    }
+    let output = output.map_err(command_error("ssh/sshpass", "PATH"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        bail!(
+            "remote database connection test failed: {}",
+            command_stderr(&output.stderr)
+        );
+    }
+}
+
+fn build_remote_mysql_test_command(config: &DatabaseConnection) -> String {
+    format!(
+        "MYSQL_PWD={} mysqladmin -h {} -P {} -u {} ping",
+        shell_quote(config.password.as_deref().unwrap_or_default()),
+        shell_quote(config.host.trim()),
+        config.port,
+        shell_quote(config.username.trim())
+    )
+}
+
+fn build_remote_postgres_test_command(config: &DatabaseConnection) -> String {
+    let database = config
+        .database_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("postgres");
+    format!(
+        "PGPASSWORD={} psql -h {} -p {} -U {} -d {} -w -c 'SELECT 1'",
+        shell_quote(config.password.as_deref().unwrap_or_default()),
+        shell_quote(config.host.trim()),
+        config.port,
+        shell_quote(config.username.trim()),
+        shell_quote(database)
+    )
+}
+
+fn remote_ssh_command(
+    config: &DatabaseConnection,
+    identity_file: Option<&Path>,
+) -> anyhow::Result<Command> {
+    match config.remote_auth_method.as_deref().unwrap_or("key") {
+        "password" => {
+            let password = required_remote_field(config.remote_secret.as_deref(), "remoteSecret")?;
+            let mut command = Command::new("sshpass");
+            command.arg("-e").arg("ssh").env("SSHPASS", password);
+            command.args(remote_ssh_options(config, identity_file)?);
+            Ok(command)
+        }
+        "key" => {
+            let mut command = Command::new("ssh");
+            command.args(remote_ssh_options(config, identity_file)?);
+            Ok(command)
+        }
+        other => bail!("unsupported remote ssh auth method: {other}"),
+    }
+}
+
+fn remote_ssh_options(
+    config: &DatabaseConnection,
+    identity_file: Option<&Path>,
+) -> anyhow::Result<Vec<String>> {
+    let remote_host = required_remote_field(config.remote_host.as_deref(), "remoteHost")?;
+    let remote_username =
+        required_remote_field(config.remote_username.as_deref(), "remoteUsername")?;
+    let remote_port = config.remote_port.unwrap_or(22).to_string();
+    let mut args = vec![
+        "-o".to_string(),
+        "BatchMode=no".to_string(),
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-p".to_string(),
+        remote_port,
+    ];
+    if config.remote_auth_method.as_deref().unwrap_or("key") == "key" {
+        let identity_file =
+            identity_file.ok_or_else(|| anyhow!("missing remote ssh identity file"))?;
+        args.push("-i".to_string());
+        args.push(identity_file.display().to_string());
+    }
+    args.push(format!("{remote_username}@{remote_host}"));
+    Ok(args)
+}
+
+async fn write_remote_identity_file(config: &DatabaseConnection) -> anyhow::Result<PathBuf> {
+    let secret = required_remote_field(config.remote_secret.as_deref(), "remoteSecret")?;
+    let path = std::env::temp_dir().join(format!(
+        ".backup-manager-source-test-ssh-key-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::write(&path, secret).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path).await?.permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(&path, permissions).await?;
+    }
+    Ok(path)
+}
+
+fn required_remote_field<'a>(value: Option<&'a str>, field: &str) -> anyhow::Result<&'a str> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("{field} is required for remoteSsh connection test"))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
     use serde_json::json;
 
-    use super::{DatabaseAdapter, MySqlAdapter, PostgresAdapter};
+    use super::{
+        DatabaseAdapter, MySqlAdapter, PostgresAdapter, build_remote_mysql_test_command,
+        build_remote_postgres_test_command,
+    };
     use crate::domain::{BackupJob, DatabaseConnection};
 
     fn connection(db_type: &str) -> DatabaseConnection {
@@ -384,5 +559,30 @@ mod tests {
 
         assert!(command.args.contains(&"--host=192.168.0.135".to_string()));
         assert!(command.args.contains(&"--user=backup".to_string()));
+    }
+
+    #[test]
+    fn remote_mysql_test_command_uses_mysqladmin_ping() {
+        let mut connection = connection("mysql");
+        connection.execution_mode = "remoteSsh".into();
+        connection.host = " db.internal ".into();
+
+        let command = build_remote_mysql_test_command(&connection);
+
+        assert!(command.contains("MYSQL_PWD='secret' mysqladmin"));
+        assert!(command.contains("-h 'db.internal'"));
+        assert!(command.contains("-u 'backup' ping"));
+    }
+
+    #[test]
+    fn remote_postgres_test_command_runs_authenticated_query() {
+        let mut connection = connection("postgres");
+        connection.execution_mode = "remoteSsh".into();
+
+        let command = build_remote_postgres_test_command(&connection);
+
+        assert!(command.contains("PGPASSWORD='secret' psql"));
+        assert!(command.contains("-d 'app'"));
+        assert!(command.contains("-w -c 'SELECT 1'"));
     }
 }
