@@ -199,6 +199,48 @@ svg {
   margin-bottom: 18px;
 }
 
+.topbar-main {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.topbar-title {
+  min-width: 0;
+}
+
+.mobile-menu-button {
+  display: none;
+}
+
+.mobile-nav-drawer {
+  left: 0;
+  top: 0;
+  display: flex;
+  width: min(320px, 86vw);
+  max-width: none;
+  height: 100dvh;
+  --tw-translate-x: 0 !important;
+  --tw-translate-y: 0 !important;
+  translate: 0 0 !important;
+  transform: translate(0, 0) !important;
+  flex-direction: column;
+  gap: 20px;
+  border-bottom: 0;
+  border-left: 0;
+  border-top: 0;
+  border-radius: 0;
+  background: var(--color-sidebar);
+  color: var(--color-sidebar-foreground);
+  padding: 18px;
+}
+
+.mobile-nav-drawer nav {
+  display: grid;
+  gap: 4px;
+}
+
 .eyebrow {
   display: inline-flex;
   align-items: center;
@@ -545,17 +587,16 @@ svg {
   }
 
   .sidebar {
-    position: static;
-    height: auto;
-    padding: 18px;
-  }
-
-  .sidebar nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: none;
   }
 
   .workspace {
     padding: 18px;
+  }
+
+  .mobile-menu-button {
+    display: inline-flex;
+    flex: 0 0 auto;
   }
 
   .topbar {
