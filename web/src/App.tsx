@@ -8,7 +8,7 @@ import { TargetsPanel } from "./features/targets/TargetsPanel";
 import { JobsPanel } from "./features/jobs/JobsPanel";
 import { RunsPanel } from "./features/runs/RunsPanel";
 import { DeleteDialog, type DeleteTarget } from "./shared/components/DeleteDialog";
-import { stringField, optionalStringField, numberField } from "./shared/utils/form";
+import { stringField } from "./shared/utils/form";
 import { errorMessage } from "./shared/utils/error";
 import { toUpsertDatabaseConnection } from "./features/sources/sourceForm";
 import { toUpsertBackupTarget } from "./features/targets/targetForm";
@@ -163,17 +163,17 @@ function App() {
     }
   }
 
-  async function handleCreateSource(event: FormEvent<HTMLFormElement>): SubmitResult {
+  async function handleSaveSource(event: FormEvent<HTMLFormElement>, source: DatabaseConnection | null): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const payload = toUpsertDatabaseConnection(form);
     const ok = await submitForm(event.currentTarget, () =>
-      request<DatabaseConnection>("/sources", {
-        method: "POST",
+      request<DatabaseConnection>(source ? `/sources/${source.id}` : "/sources", {
+        method: source ? "PUT" : "POST",
         body: JSON.stringify(payload),
       }),
     );
-    if (ok) setNotice("数据源已保存");
+    if (ok) setNotice(source ? "数据源已更新" : "数据源已保存");
     return ok;
   }
 
@@ -186,17 +186,17 @@ function App() {
     return true;
   }
 
-  async function handleCreateTarget(event: FormEvent<HTMLFormElement>): SubmitResult {
+  async function handleSaveTarget(event: FormEvent<HTMLFormElement>, target: BackupTarget | null): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const payload = toUpsertBackupTarget(form);
     const ok = await submitForm(event.currentTarget, () =>
-      request<BackupTarget>("/targets", {
-        method: "POST",
+      request<BackupTarget>(target ? `/targets/${target.id}` : "/targets", {
+        method: target ? "PUT" : "POST",
         body: JSON.stringify(payload),
       }),
     );
-    if (ok) setNotice("备份目标已保存");
+    if (ok) setNotice(target ? "备份目标已更新" : "备份目标已保存");
     return ok;
   }
 
@@ -209,17 +209,17 @@ function App() {
     return true;
   }
 
-  async function handleCreateJob(event: FormEvent<HTMLFormElement>): SubmitResult {
+  async function handleSaveJob(event: FormEvent<HTMLFormElement>, job: BackupJob | null): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const payload = toUpsertBackupJob(form);
     const ok = await submitForm(event.currentTarget, () =>
-      request<BackupJob>("/jobs", {
-        method: "POST",
+      request<BackupJob>(job ? `/jobs/${job.id}` : "/jobs", {
+        method: job ? "PUT" : "POST",
         body: JSON.stringify(payload),
       }),
     );
-    if (ok) setNotice("备份任务已保存");
+    if (ok) setNotice(job ? "备份任务已更新" : "备份任务已保存");
     return ok;
   }
 
@@ -328,7 +328,7 @@ function App() {
             })
           }
           onTest={handleTestSource}
-          onSubmit={handleCreateSource}
+          onSubmit={handleSaveSource}
         />
       )}
       {activeTab === "targets" && (
@@ -343,7 +343,7 @@ function App() {
             })
           }
           onTest={handleTestTarget}
-          onSubmit={handleCreateTarget}
+          onSubmit={handleSaveTarget}
         />
       )}
       {activeTab === "jobs" && (
@@ -364,7 +364,7 @@ function App() {
           onRun={runJob}
           onGoToSources={() => setActiveTab("sources")}
           onGoToTargets={() => setActiveTab("targets")}
-          onSubmit={handleCreateJob}
+          onSubmit={handleSaveJob}
           onViewRun={(runId) => {
             setActiveTab("runs");
             loadRunLogs(runId);

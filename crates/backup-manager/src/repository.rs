@@ -90,6 +90,46 @@ impl Repository {
         row_database_connection(row)
     }
 
+    pub async fn update_database_connection(
+        &self,
+        id: &str,
+        input: UpsertDatabaseConnection,
+        encrypted_password: String,
+        encrypted_remote_secret: Option<String>,
+    ) -> anyhow::Result<Option<DatabaseConnection>> {
+        let input = input.normalized();
+        let now = Utc::now();
+        let result = sqlx::query(
+            "UPDATE database_connections
+             SET name = ?, db_type = ?, host = ?, port = ?, username = ?, encrypted_password = ?, database_name = ?, execution_mode = ?, remote_host = ?, remote_port = ?, remote_username = ?, remote_auth_method = ?, encrypted_remote_secret = ?, remote_tool_path = ?, remote_working_dir = ?, config_json = ?, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(&input.name)
+        .bind(&input.db_type)
+        .bind(&input.host)
+        .bind(input.port)
+        .bind(&input.username)
+        .bind(&encrypted_password)
+        .bind(&input.database_name)
+        .bind(&input.execution_mode)
+        .bind(&input.remote_host)
+        .bind(input.remote_port)
+        .bind(&input.remote_username)
+        .bind(&input.remote_auth_method)
+        .bind(&encrypted_remote_secret)
+        .bind(&input.remote_tool_path)
+        .bind(&input.remote_working_dir)
+        .bind(input.config_json.to_string())
+        .bind(now.to_rfc3339())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        self.get_database_connection(id).await.map(Some)
+    }
+
     pub async fn delete_database_connection(&self, id: &str) -> anyhow::Result<bool> {
         let result = sqlx::query("DELETE FROM database_connections WHERE id = ?")
             .bind(id)
@@ -163,6 +203,38 @@ impl Repository {
             .fetch_one(&self.pool)
             .await?;
         row_backup_target(row)
+    }
+
+    pub async fn update_backup_target(
+        &self,
+        id: &str,
+        input: UpsertBackupTarget,
+        encrypted_secret: String,
+    ) -> anyhow::Result<Option<BackupTarget>> {
+        let input = input.normalized();
+        let now = Utc::now();
+        let result = sqlx::query(
+            "UPDATE backup_targets
+             SET name = ?, target_type = ?, host = ?, port = ?, username = ?, auth_method = ?, encrypted_secret = ?, base_dir = ?, config_json = ?, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(&input.name)
+        .bind(&input.target_type)
+        .bind(&input.host)
+        .bind(input.port)
+        .bind(&input.username)
+        .bind(&input.auth_method)
+        .bind(&encrypted_secret)
+        .bind(&input.base_dir)
+        .bind(input.config_json.to_string())
+        .bind(now.to_rfc3339())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        self.get_backup_target(id).await.map(Some)
     }
 
     pub async fn delete_backup_target(&self, id: &str) -> anyhow::Result<bool> {
@@ -241,6 +313,37 @@ impl Repository {
             .fetch_one(&self.pool)
             .await?;
         row_backup_job(row)
+    }
+
+    pub async fn update_backup_job(
+        &self,
+        id: &str,
+        input: UpsertBackupJob,
+    ) -> anyhow::Result<Option<BackupJob>> {
+        let input = input.normalized();
+        let now = Utc::now();
+        let result = sqlx::query(
+            "UPDATE backup_jobs
+             SET name = ?, database_connection_id = ?, database_name = ?, backup_target_id = ?, schedule = ?, compression = ?, remote_retention_days = ?, local_retention_days = ?, enabled = ?, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(&input.name)
+        .bind(&input.database_connection_id)
+        .bind(&input.database_name)
+        .bind(&input.backup_target_id)
+        .bind(&input.schedule)
+        .bind(&input.compression)
+        .bind(input.remote_retention_days)
+        .bind(input.local_retention_days)
+        .bind(if input.enabled { 1 } else { 0 })
+        .bind(now.to_rfc3339())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        self.get_backup_job(id).await.map(Some)
     }
 
     pub async fn delete_backup_job(&self, id: &str) -> anyhow::Result<bool> {

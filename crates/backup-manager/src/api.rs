@@ -5,7 +5,7 @@ use axum::{
     extract::{FromRef, Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{get, post, put},
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -48,13 +48,13 @@ pub fn router(state: AppState) -> Router {
         .route("/schemas/targets", get(target_schemas))
         .route("/dashboard", get(dashboard))
         .route("/sources", get(list_sources).post(create_source))
-        .route("/sources/{id}", delete(delete_source))
+        .route("/sources/{id}", put(update_source).delete(delete_source))
         .route("/sources/test", post(test_source))
         .route("/targets", get(list_targets).post(create_target))
-        .route("/targets/{id}", delete(delete_target))
+        .route("/targets/{id}", put(update_target).delete(delete_target))
         .route("/targets/test", post(test_target))
         .route("/jobs", get(list_jobs).post(create_job))
-        .route("/jobs/{id}", delete(delete_job))
+        .route("/jobs/{id}", put(update_job).delete(delete_job))
         .route("/jobs/{id}/run", post(run_job))
         .route("/runs", get(list_runs))
         .route("/runs/{id}/logs", get(list_run_logs))
@@ -141,6 +141,41 @@ async fn create_source(
     ))
 }
 
+async fn update_source(
+    _auth: Authenticated,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<UpsertDatabaseConnection>,
+) -> Result<Json<DatabaseConnection>, ApiError> {
+    let current = state
+        .repository
+        .get_database_connection(&id)
+        .await
+        .map_err(|_| ApiError::not_found("数据源不存在"))?;
+    let encrypted = input
+        .password
+        .trim()
+        .is_empty()
+        .then_some(current.encrypted_password)
+        .map(Ok)
+        .unwrap_or_else(|| state.crypto.encrypt(&input.password))?;
+    let encrypted_remote_secret = match input
+        .remote_secret
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        Some(value) => Some(state.crypto.encrypt(value)?),
+        None => current.encrypted_remote_secret,
+    };
+    Ok(Json(
+        state
+            .repository
+            .update_database_connection(&id, input, encrypted, encrypted_remote_secret)
+            .await?
+            .ok_or_else(|| ApiError::not_found("数据源不存在"))?,
+    ))
+}
+
 async fn test_source(
     _auth: Authenticated,
     State(state): State<AppState>,
@@ -214,6 +249,33 @@ async fn create_target(
     ))
 }
 
+async fn update_target(
+    _auth: Authenticated,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<UpsertBackupTarget>,
+) -> Result<Json<BackupTarget>, ApiError> {
+    let current = state
+        .repository
+        .get_backup_target(&id)
+        .await
+        .map_err(|_| ApiError::not_found("备份目标不存在"))?;
+    let encrypted = input
+        .secret
+        .trim()
+        .is_empty()
+        .then_some(current.encrypted_secret)
+        .map(Ok)
+        .unwrap_or_else(|| state.crypto.encrypt(&input.secret))?;
+    Ok(Json(
+        state
+            .repository
+            .update_backup_target(&id, input, encrypted)
+            .await?
+            .ok_or_else(|| ApiError::not_found("备份目标不存在"))?,
+    ))
+}
+
 async fn test_target(
     _auth: Authenticated,
     State(state): State<AppState>,
@@ -271,6 +333,21 @@ async fn create_job(
     Json(input): Json<UpsertBackupJob>,
 ) -> Result<Json<BackupJob>, ApiError> {
     let job = state.repository.create_backup_job(input).await?;
+    state.scheduler.reload().await?;
+    Ok(Json(job))
+}
+
+async fn update_job(
+    _auth: Authenticated,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<UpsertBackupJob>,
+) -> Result<Json<BackupJob>, ApiError> {
+    let job = state
+        .repository
+        .update_backup_job(&id, input)
+        .await?
+        .ok_or_else(|| ApiError::not_found("备份任务不存在"))?;
     state.scheduler.reload().await?;
     Ok(Json(job))
 }

@@ -18,6 +18,7 @@ import {
 import { DataTable } from "@/shared/components/DataTable";
 import { Field } from "@/shared/components/Field";
 import { IconButton } from "./IconButton";
+import { sourceToFormValue } from "./sourceForm";
 import { validatePort } from "@/shared/utils/validators";
 import { errorMessage } from "@/shared/utils/error";
 
@@ -38,10 +39,11 @@ export function SourcesPanel({
   items: DatabaseConnection[];
   onDelete: (source: DatabaseConnection) => void;
   onTest: (form: FormData) => SubmitResult;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => SubmitResult;
+  onSubmit: (event: FormEvent<HTMLFormElement>, source: DatabaseConnection | null) => SubmitResult;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [open, setOpen] = useState(false);
+  const [editingSource, setEditingSource] = useState<DatabaseConnection | null>(null);
   const [dbType, setDbType] = useState("mysql");
   const [port, setPort] = useState(defaultPorts.mysql);
   const [executionMode, setExecutionMode] = useState("local");
@@ -52,7 +54,7 @@ export function SourcesPanel({
   const [testMessage, setTestMessage] = useState("");
   const [isTesting, setIsTesting] = useState(false);
 
-  function validateForm(form: FormData): boolean {
+  function validateForm(form: FormData, requireSecrets = false): boolean {
     const errors: Record<string, string> = {};
     const port = Number(form.get("port"));
     const portResult = validatePort(port);
@@ -60,14 +62,23 @@ export function SourcesPanel({
     if (!form.get("name")?.toString().trim()) errors.name = "名称不能为空";
     if (!form.get("host")?.toString().trim()) errors.host = "主机不能为空";
     if (!form.get("username")?.toString().trim()) errors.username = "用户名不能为空";
-    if (!form.get("password")?.toString().trim()) errors.password = "密码不能为空";
+    if ((requireSecrets || !editingSource) && !form.get("password")?.toString().trim()) {
+      errors.password = "密码不能为空";
+    }
     if (form.get("executionMode") === "remoteSsh") {
       const remotePort = Number(form.get("remotePort"));
       const remotePortResult = validatePort(remotePort);
       if (!remotePortResult.valid) errors.remotePort = remotePortResult.message!;
       if (!form.get("remoteHost")?.toString().trim()) errors.remoteHost = "SSH 主机不能为空";
       if (!form.get("remoteUsername")?.toString().trim()) errors.remoteUsername = "SSH 用户不能为空";
-      if (!form.get("remoteSecret")?.toString().trim()) errors.remoteSecret = "SSH 密钥或密码不能为空";
+      const authMethodChanged = editingSource?.remoteAuthMethod !== form.get("remoteAuthMethod");
+      const modeChangedToRemote = editingSource?.executionMode !== "remoteSsh";
+      if (
+        (requireSecrets || modeChangedToRemote || authMethodChanged) &&
+        !form.get("remoteSecret")?.toString().trim()
+      ) {
+        errors.remoteSecret = "SSH 密钥或密码不能为空";
+      }
     }
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
@@ -82,6 +93,7 @@ export function SourcesPanel({
   function resetDialog(nextOpen: boolean) {
     setOpen(nextOpen);
     if (!nextOpen) {
+      setEditingSource(null);
       setFieldErrors({});
       setGlobalError("");
       setTestMessage("");
@@ -93,22 +105,48 @@ export function SourcesPanel({
     }
   }
 
+  function openCreateDialog() {
+    setEditingSource(null);
+    setDbType("mysql");
+    setPort(defaultPorts.mysql);
+    setExecutionMode("local");
+    setRemoteAuthMethod("key");
+    setRemotePort("22");
+    setOpen(true);
+  }
+
+  function openEditDialog(source: DatabaseConnection) {
+    setEditingSource(source);
+    setDbType(source.dbType);
+    setPort(String(source.port));
+    setExecutionMode(source.executionMode);
+    setRemoteAuthMethod(source.remoteAuthMethod || "key");
+    setRemotePort(String(source.remotePort || 22));
+    setFieldErrors({});
+    setGlobalError("");
+    setTestMessage("");
+    setOpen(true);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setGlobalError("");
     if (!validateForm(form)) return false;
-    const ok = await onSubmit(event);
+    const ok = await onSubmit(event, editingSource);
     if (ok) resetDialog(false);
     return ok;
   }
+
+  const editingValue = editingSource ? sourceToFormValue(editingSource) : null;
+  const isEditing = Boolean(editingSource);
 
   async function handleTestConnection() {
     if (!formRef.current) return;
     const form = new FormData(formRef.current);
     setGlobalError("");
     setTestMessage("");
-    if (!validateForm(form)) return;
+    if (!validateForm(form, true)) return;
     setIsTesting(true);
     try {
       await onTest(form);
@@ -127,7 +165,7 @@ export function SourcesPanel({
         title="数据源列表"
         description="配置 MySQL / PostgreSQL 连接信息。默认由管理台本机执行备份工具。"
         action={
-          <Button type="button" onClick={() => setOpen(true)} disabled={isSubmitting}>
+          <Button type="button" onClick={openCreateDialog} disabled={isSubmitting}>
             新建数据源
           </Button>
         }
@@ -142,7 +180,10 @@ export function SourcesPanel({
             item.username,
             item.executionMode === "remoteSsh" ? "数据库服务器" : "管理台本机",
             item.databaseName || "未设置",
-            <IconButton label="删除数据源" disabled={isSubmitting} onClick={() => onDelete(item)} />,
+            <div className="action-cell">
+              <IconButton icon="edit" label="编辑数据源" disabled={isSubmitting} onClick={() => openEditDialog(item)} />
+              <IconButton label="删除数据源" disabled={isSubmitting} onClick={() => onDelete(item)} />
+            </div>,
           ],
         }))}
       />
@@ -150,8 +191,8 @@ export function SourcesPanel({
       <Dialog open={open} onOpenChange={resetDialog}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>新建数据源</DialogTitle>
-            <DialogDescription>数据库密码会由后端加密保存，仅在执行边界按需解密使用。</DialogDescription>
+            <DialogTitle>{isEditing ? "编辑数据源" : "新建数据源"}</DialogTitle>
+            <DialogDescription>数据库密码会由后端加密保存；编辑时留空表示沿用原密码。</DialogDescription>
           </DialogHeader>
           {testMessage && (
             <Alert className="mb-4" variant="success">{testMessage}</Alert>
@@ -161,12 +202,12 @@ export function SourcesPanel({
           )}
           <form
             className="form-grid"
-            id="create-source-form"
+            id="source-form"
             ref={formRef}
             onSubmit={handleSubmit}
           >
             <Field label="名称">
-              <Input name="name" placeholder="生产库" required />
+              <Input name="name" placeholder="生产库" defaultValue={editingValue?.name || ""} required />
               {fieldErrors.name && <p className="field-error">{fieldErrors.name}</p>}
             </Field>
             <Field label="类型">
@@ -181,7 +222,7 @@ export function SourcesPanel({
               </Select>
             </Field>
             <Field label="主机">
-              <Input name="host" placeholder="127.0.0.1" required />
+              <Input name="host" placeholder="127.0.0.1" defaultValue={editingValue?.host || ""} required />
               {fieldErrors.host && <p className="field-error">{fieldErrors.host}</p>}
             </Field>
             <Field label="端口">
@@ -200,15 +241,21 @@ export function SourcesPanel({
               {fieldErrors.port && <p className="field-error">{fieldErrors.port}</p>}
             </Field>
             <Field label="用户名">
-              <Input name="username" placeholder="backup" required />
+              <Input name="username" placeholder="backup" defaultValue={editingValue?.username || ""} required />
               {fieldErrors.username && <p className="field-error">{fieldErrors.username}</p>}
             </Field>
             <Field label="密码">
-              <Input name="password" type="password" placeholder="数据库密码" autoComplete="new-password" required />
+              <Input
+                name="password"
+                type="password"
+                placeholder={isEditing ? "留空表示不修改" : "数据库密码"}
+                autoComplete="new-password"
+                required={!isEditing}
+              />
               {fieldErrors.password && <p className="field-error">{fieldErrors.password}</p>}
             </Field>
             <Field label="默认数据库">
-              <Input name="databaseName" placeholder="可选" />
+              <Input name="databaseName" placeholder="可选" defaultValue={editingValue?.databaseName || ""} />
             </Field>
             <Field label="备份执行位置">
               <Select name="executionMode" value={executionMode} onValueChange={setExecutionMode}>
@@ -224,7 +271,7 @@ export function SourcesPanel({
             {executionMode === "remoteSsh" && (
               <>
                 <Field label="SSH 主机">
-                  <Input name="remoteHost" placeholder="数据库服务器地址" required />
+                  <Input name="remoteHost" placeholder="数据库服务器地址" defaultValue={editingValue?.remoteHost || ""} required />
                   {fieldErrors.remoteHost && <p className="field-error">{fieldErrors.remoteHost}</p>}
                 </Field>
                 <Field label="SSH 端口">
@@ -240,7 +287,7 @@ export function SourcesPanel({
                   {fieldErrors.remotePort && <p className="field-error">{fieldErrors.remotePort}</p>}
                 </Field>
                 <Field label="SSH 用户">
-                  <Input name="remoteUsername" placeholder="backup" required />
+                  <Input name="remoteUsername" placeholder="backup" defaultValue={editingValue?.remoteUsername || ""} required />
                   {fieldErrors.remoteUsername && <p className="field-error">{fieldErrors.remoteUsername}</p>}
                 </Field>
                 <Field label="认证方式">
@@ -258,16 +305,20 @@ export function SourcesPanel({
                   <Input
                     name="remoteSecret"
                     type={remoteAuthMethod === "password" ? "password" : "text"}
-                    placeholder={remoteAuthMethod === "password" ? "SSH 登录密码" : "私钥内容"}
-                    required
+                    placeholder={isEditing ? "留空表示不修改" : remoteAuthMethod === "password" ? "SSH 登录密码" : "私钥内容"}
+                    required={!isEditing || editingSource?.executionMode !== "remoteSsh" || editingSource?.remoteAuthMethod !== remoteAuthMethod}
                   />
                   {fieldErrors.remoteSecret && <p className="field-error">{fieldErrors.remoteSecret}</p>}
                 </Field>
                 <Field label="远端工具路径">
-                  <Input name="remoteToolPath" placeholder={dbType === "mysql" ? "默认 mysqldump" : "默认 pg_dump"} />
+                  <Input
+                    name="remoteToolPath"
+                    placeholder={dbType === "mysql" ? "默认 mysqldump" : "默认 pg_dump"}
+                    defaultValue={editingValue?.remoteToolPath || ""}
+                  />
                 </Field>
                 <Field label="远端工作目录">
-                  <Input name="remoteWorkingDir" placeholder="可选" />
+                  <Input name="remoteWorkingDir" placeholder="可选" defaultValue={editingValue?.remoteWorkingDir || ""} />
                 </Field>
               </>
             )}
@@ -281,7 +332,7 @@ export function SourcesPanel({
             <Button type="button" variant="secondary" disabled={isSubmitting || isTesting} onClick={handleTestConnection}>
               {isTesting ? "测试中..." : "测试连接"}
             </Button>
-            <Button type="submit" form="create-source-form" disabled={isSubmitting}>
+            <Button type="submit" form="source-form" disabled={isSubmitting}>
               保存
             </Button>
           </DialogFooter>

@@ -24,6 +24,7 @@ import { DataTable } from "@/shared/components/DataTable";
 import { Field } from "@/shared/components/Field";
 import { StatusBadge } from "@/shared/components/StatusBadge";
 import { IconButton } from "./IconButton";
+import { jobToFormValue } from "./jobForm";
 import { stageLabel, latestRunLogText, isRunInProgress, runningDuration } from "@/shared/formatters/run";
 import { formatDate } from "@/shared/formatters/date";
 import { formatDuration } from "@/shared/formatters/duration";
@@ -65,10 +66,11 @@ export function JobsPanel({
   onGoToSources: () => void;
   onGoToTargets: () => void;
   onRun: (jobId: string) => void;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => SubmitResult;
+  onSubmit: (event: FormEvent<HTMLFormElement>, job: BackupJob | null) => SubmitResult;
   onViewRun: (runId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [editingJob, setEditingJob] = useState<BackupJob | null>(null);
   const [schedule, setSchedule] = useState(cronTemplates[0].value);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState("");
@@ -99,7 +101,7 @@ export function JobsPanel({
     const form = new FormData(event.currentTarget);
     setGlobalError("");
     if (!validateForm(form)) return false;
-    const ok = await onSubmit(event);
+    const ok = await onSubmit(event, editingJob);
     if (ok) resetDialog(false);
     return ok;
   }
@@ -107,11 +109,31 @@ export function JobsPanel({
   function resetDialog(nextOpen: boolean) {
     setOpen(nextOpen);
     if (!nextOpen) {
+      setEditingJob(null);
       setSchedule(cronTemplates[0].value);
       setFieldErrors({});
       setGlobalError("");
     }
   }
+
+  function openCreateDialog() {
+    setEditingJob(null);
+    setSchedule(cronTemplates[0].value);
+    setFieldErrors({});
+    setGlobalError("");
+    setOpen(true);
+  }
+
+  function openEditDialog(job: BackupJob) {
+    setEditingJob(job);
+    setSchedule(job.schedule);
+    setFieldErrors({});
+    setGlobalError("");
+    setOpen(true);
+  }
+
+  const editingValue = editingJob ? jobToFormValue(editingJob) : null;
+  const isEditing = Boolean(editingJob);
 
   return (
     <section className="panel">
@@ -208,7 +230,7 @@ export function JobsPanel({
               </TooltipContent>
             </Tooltip>
           ) : (
-            <Button type="button" onClick={() => resetDialog(true)} disabled={isSubmitting}>
+            <Button type="button" onClick={openCreateDialog} disabled={isSubmitting}>
               新建备份任务
             </Button>
           )
@@ -236,6 +258,7 @@ export function JobsPanel({
                   <Play className={isCurrentJobRunning ? "size-4 animate-pulse" : "size-4"} />
                   {isCurrentJobRunning ? "执行中" : "立即执行"}
                 </Button>
+                <IconButton icon="edit" label="编辑备份任务" disabled={isSubmitting} onClick={() => openEditDialog(job)} />
                 <IconButton label="删除备份任务" disabled={isSubmitting} onClick={() => onDelete(job)} />
               </div>,
             ],
@@ -246,7 +269,7 @@ export function JobsPanel({
       <Dialog open={open} onOpenChange={resetDialog}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>新建备份任务</DialogTitle>
+            <DialogTitle>{isEditing ? "编辑备份任务" : "新建备份任务"}</DialogTitle>
             <DialogDescription>选择数据源和目标后，可配置 Cron 计划并支持手动触发。</DialogDescription>
           </DialogHeader>
           {globalError && (
@@ -255,15 +278,15 @@ export function JobsPanel({
           <ScrollArea className="max-h-[70vh]">
             <form
               className="form-grid"
-              id="create-job-form"
+              id="job-form"
               onSubmit={handleSubmit}
             >
               <Field label="任务名称">
-                <Input name="name" placeholder="每日生产库备份" required />
+                <Input name="name" placeholder="每日生产库备份" defaultValue={editingValue?.name || ""} required />
                 {fieldErrors.name && <p className="field-error">{fieldErrors.name}</p>}
               </Field>
               <Field label="数据源">
-                <Select name="databaseConnectionId" required>
+                <Select name="databaseConnectionId" defaultValue={editingValue?.databaseConnectionId} required>
                   <SelectTrigger>
                     <SelectValue placeholder="选择数据源" />
                   </SelectTrigger>
@@ -277,11 +300,11 @@ export function JobsPanel({
                 </Select>
               </Field>
               <Field label="备份数据库">
-                <Input name="databaseName" placeholder="业务库名" required />
+                <Input name="databaseName" placeholder="业务库名" defaultValue={editingValue?.databaseName || ""} required />
                 {fieldErrors.databaseName && <p className="field-error">{fieldErrors.databaseName}</p>}
               </Field>
               <Field label="备份目标">
-                <Select name="backupTargetId" required>
+                <Select name="backupTargetId" defaultValue={editingValue?.backupTargetId} required>
                   <SelectTrigger>
                     <SelectValue placeholder="选择备份目标" />
                   </SelectTrigger>
@@ -319,7 +342,7 @@ export function JobsPanel({
                 {fieldErrors.schedule && <p className="field-error">{fieldErrors.schedule}</p>}
               </Field>
               <Field label="压缩方式">
-                <Select name="compression" defaultValue="gzip">
+                <Select name="compression" defaultValue={editingValue?.compression || "gzip"}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -329,15 +352,15 @@ export function JobsPanel({
                 </Select>
               </Field>
               <Field label="远端保留天数">
-                <Input name="remoteRetentionDays" type="number" min="0" step="1" defaultValue="30" required />
+                <Input name="remoteRetentionDays" type="number" min="0" step="1" defaultValue={editingValue?.remoteRetentionDays ?? 30} required />
                 {fieldErrors.remoteRetentionDays && <p className="field-error">{fieldErrors.remoteRetentionDays}</p>}
               </Field>
               <Field label="本地保留天数">
-                <Input name="localRetentionDays" type="number" min="0" step="1" defaultValue="7" required />
+                <Input name="localRetentionDays" type="number" min="0" step="1" defaultValue={editingValue?.localRetentionDays ?? 7} required />
                 {fieldErrors.localRetentionDays && <p className="field-error">{fieldErrors.localRetentionDays}</p>}
               </Field>
               <label className="checkbox-field">
-                <Checkbox name="enabled" defaultChecked />
+                <Checkbox name="enabled" defaultChecked={editingValue?.enabled ?? true} />
                 <span>启用任务</span>
               </label>
             </form>
@@ -348,7 +371,7 @@ export function JobsPanel({
                 取消
               </Button>
             </DialogClose>
-            <Button type="submit" form="create-job-form" disabled={isSubmitting}>
+            <Button type="submit" form="job-form" disabled={isSubmitting}>
               保存
             </Button>
           </DialogFooter>
