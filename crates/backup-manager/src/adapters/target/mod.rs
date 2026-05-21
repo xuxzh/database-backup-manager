@@ -151,6 +151,7 @@ impl BackupTargetAdapter for SshTargetAdapter {
         self.validate_config(config)?;
         let identity_file = prepare_identity_file_for_target(config, None).await?;
         let remote = format!("{}@{}", config.username, config.host);
+        let executable = ssh_executable_name(config)?;
         let mut command = ssh_command(config, identity_file.as_deref())?;
         let output = command
             .arg(&remote)
@@ -159,7 +160,7 @@ impl BackupTargetAdapter for SshTargetAdapter {
             .arg(&config.base_dir)
             .output()
             .await
-            .map_err(command_error("ssh/sshpass"))?;
+            .map_err(command_error(executable))?;
         cleanup_identity_file(identity_file.as_deref()).await;
         if output.status.success() {
             Ok(())
@@ -187,6 +188,7 @@ impl BackupTargetAdapter for SshTargetAdapter {
         let remote = format!("{}@{}:{}", req.target.username, req.target.host, remote_dir);
         let identity_file = prepare_identity_file(&req).await?;
         let mkdir_remote = format!("{}@{}", req.target.username, req.target.host);
+        let ssh_executable = ssh_executable_name(&req.target)?;
         let mut mkdir_command = ssh_command(&req.target, identity_file.as_deref())?;
         let mkdir_output = mkdir_command
             .arg(&mkdir_remote)
@@ -195,7 +197,7 @@ impl BackupTargetAdapter for SshTargetAdapter {
             .arg(&remote_dir)
             .output()
             .await
-            .map_err(command_error("ssh/sshpass"))?;
+            .map_err(command_error(ssh_executable))?;
         if !mkdir_output.status.success() {
             cleanup_identity_file(identity_file.as_deref()).await;
             bail!(
@@ -204,6 +206,7 @@ impl BackupTargetAdapter for SshTargetAdapter {
                 stderr_text(&mkdir_output.stderr)
             );
         }
+        let rsync_executable = rsync_executable_name(&req.target)?;
         let mut rsync_command = rsync_command(&req.target, identity_file.as_deref())?;
         let output = rsync_command
             .arg("-az")
@@ -217,7 +220,7 @@ impl BackupTargetAdapter for SshTargetAdapter {
             .arg(&remote)
             .output()
             .await
-            .map_err(command_error("rsync/sshpass"))?;
+            .map_err(command_error(rsync_executable))?;
         cleanup_identity_file(identity_file.as_deref()).await;
         if !output.status.success() {
             bail!(
@@ -234,6 +237,7 @@ impl BackupTargetAdapter for SshTargetAdapter {
     async fn verify(&self, target: &BackupTarget, remote_path: &str) -> anyhow::Result<()> {
         let identity_file = prepare_identity_file_for_target(target, None).await?;
         let remote = format!("{}@{}", target.username, target.host);
+        let executable = ssh_executable_name(target)?;
         let mut command = ssh_command(target, identity_file.as_deref())?;
         let output = command
             .arg(&remote)
@@ -242,7 +246,7 @@ impl BackupTargetAdapter for SshTargetAdapter {
             .arg(remote_path)
             .output()
             .await
-            .map_err(command_error("ssh/sshpass"))?;
+            .map_err(command_error(executable))?;
         cleanup_identity_file(identity_file.as_deref()).await;
         if output.status.success() {
             Ok(())
@@ -313,8 +317,8 @@ fn ssh_options(target: &BackupTarget, identity_file: Option<&Path>) -> anyhow::R
 }
 
 fn ssh_command(target: &BackupTarget, identity_file: Option<&Path>) -> anyhow::Result<Command> {
-    match target.auth_method.as_str() {
-        "password" => {
+    match ssh_executable_name(target)? {
+        "sshpass" => {
             let password = target
                 .secret
                 .as_deref()
@@ -324,17 +328,18 @@ fn ssh_command(target: &BackupTarget, identity_file: Option<&Path>) -> anyhow::R
             command.args(ssh_options(target, identity_file)?);
             Ok(command)
         }
-        _ => {
+        "ssh" => {
             let mut command = Command::new("ssh");
             command.args(ssh_options(target, identity_file)?);
             Ok(command)
         }
+        other => bail!("unsupported ssh executable: {other}"),
     }
 }
 
 fn rsync_command(target: &BackupTarget, identity_file: Option<&Path>) -> anyhow::Result<Command> {
-    match target.auth_method.as_str() {
-        "password" => {
+    match rsync_executable_name(target)? {
+        "sshpass" => {
             let password = target
                 .secret
                 .as_deref()
@@ -344,10 +349,27 @@ fn rsync_command(target: &BackupTarget, identity_file: Option<&Path>) -> anyhow:
             let _ = ssh_options(target, identity_file)?;
             Ok(command)
         }
-        _ => {
+        "rsync" => {
             let command = Command::new("rsync");
             Ok(command)
         }
+        other => bail!("unsupported rsync executable: {other}"),
+    }
+}
+
+fn ssh_executable_name(target: &BackupTarget) -> anyhow::Result<&'static str> {
+    match target.auth_method.as_str() {
+        "password" => Ok("sshpass"),
+        "key" => Ok("ssh"),
+        other => bail!("unsupported ssh auth method: {other}"),
+    }
+}
+
+fn rsync_executable_name(target: &BackupTarget) -> anyhow::Result<&'static str> {
+    match target.auth_method.as_str() {
+        "password" => Ok("sshpass"),
+        "key" => Ok("rsync"),
+        other => bail!("unsupported ssh auth method: {other}"),
     }
 }
 
@@ -395,7 +417,8 @@ fn command_error(command: &'static str) -> impl FnOnce(std::io::Error) -> anyhow
     move |error| {
         if error.kind() == ErrorKind::NotFound {
             anyhow!(
-                "required command `{command}` was not found. 请安装 openssh-client、rsync；如果使用 SSH 密码认证，还需要安装 sshpass"
+                "required command `{command}` was not found. {}",
+                missing_command_hint(command)
             )
         } else {
             anyhow!("failed to execute `{command}`: {error}")
@@ -403,7 +426,62 @@ fn command_error(command: &'static str) -> impl FnOnce(std::io::Error) -> anyhow
     }
 }
 
+fn missing_command_hint(command: &str) -> &'static str {
+    match command {
+        "ssh" => "请安装 openssh-client。",
+        "rsync" => "请安装 rsync。",
+        "sshpass" => "当前使用 SSH 密码认证，请安装 sshpass；同时需要 openssh-client 可用。",
+        _ => "请确认该命令已安装并在 PATH 中。",
+    }
+}
+
 #[allow(dead_code)]
 fn _path_display(path: &Path) -> String {
     path.display().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use serde_json::json;
+
+    use super::{rsync_executable_name, ssh_executable_name};
+    use crate::domain::BackupTarget;
+
+    #[test]
+    fn ssh_missing_command_name_matches_auth_method() {
+        let mut target = target("key");
+        assert_eq!(ssh_executable_name(&target).unwrap(), "ssh");
+
+        target.auth_method = "password".into();
+        assert_eq!(ssh_executable_name(&target).unwrap(), "sshpass");
+    }
+
+    #[test]
+    fn rsync_missing_command_name_matches_auth_method() {
+        let mut target = target("key");
+        assert_eq!(rsync_executable_name(&target).unwrap(), "rsync");
+
+        target.auth_method = "password".into();
+        assert_eq!(rsync_executable_name(&target).unwrap(), "sshpass");
+    }
+
+    fn target(auth_method: &str) -> BackupTarget {
+        let now = Utc::now();
+        BackupTarget {
+            id: "target".into(),
+            name: "target".into(),
+            target_type: "ssh".into(),
+            host: "backup.example.com".into(),
+            port: 22,
+            username: "backup".into(),
+            auth_method: auth_method.into(),
+            encrypted_secret: "encrypted".into(),
+            secret: Some("secret".into()),
+            base_dir: "/backups".into(),
+            config_json: json!({}),
+            created_at: now,
+            updated_at: now,
+        }
+    }
 }
