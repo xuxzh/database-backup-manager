@@ -53,6 +53,32 @@ export function SourcesPanel({
   const [globalError, setGlobalError] = useState("");
   const [testMessage, setTestMessage] = useState("");
   const [isTesting, setIsTesting] = useState(false);
+  const [successfulTestSignature, setSuccessfulTestSignature] = useState<string | null>(null);
+
+  function sourceFormSignature(form: FormData): string {
+    return JSON.stringify({
+      name: form.get("name")?.toString().trim() || "",
+      dbType: form.get("dbType")?.toString().trim() || "",
+      host: form.get("host")?.toString().trim() || "",
+      port: form.get("port")?.toString().trim() || "",
+      username: form.get("username")?.toString().trim() || "",
+      password: form.get("password")?.toString() || "",
+      databaseName: form.get("databaseName")?.toString().trim() || "",
+      executionMode: form.get("executionMode")?.toString().trim() || "local",
+      remoteHost: form.get("remoteHost")?.toString().trim() || "",
+      remotePort: form.get("remotePort")?.toString().trim() || "",
+      remoteUsername: form.get("remoteUsername")?.toString().trim() || "",
+      remoteAuthMethod: form.get("remoteAuthMethod")?.toString().trim() || "",
+      remoteSecret: form.get("remoteSecret")?.toString() || "",
+      remoteToolPath: form.get("remoteToolPath")?.toString().trim() || "",
+      remoteWorkingDir: form.get("remoteWorkingDir")?.toString().trim() || "",
+    });
+  }
+
+  function clearSuccessfulTest() {
+    setSuccessfulTestSignature(null);
+    setTestMessage("");
+  }
 
   function validateForm(form: FormData, requireSecrets = false): boolean {
     const errors: Record<string, string> = {};
@@ -87,7 +113,7 @@ export function SourcesPanel({
   function handleDbTypeChange(nextDbType: string) {
     setDbType(nextDbType);
     setPort(defaultPorts[nextDbType] ?? port);
-    setTestMessage("");
+    clearSuccessfulTest();
   }
 
   function resetDialog(nextOpen: boolean) {
@@ -96,7 +122,7 @@ export function SourcesPanel({
       setEditingSource(null);
       setFieldErrors({});
       setGlobalError("");
-      setTestMessage("");
+      clearSuccessfulTest();
       setDbType("mysql");
       setPort(defaultPorts.mysql);
       setExecutionMode("local");
@@ -124,7 +150,7 @@ export function SourcesPanel({
     setRemotePort(String(source.remotePort || 22));
     setFieldErrors({});
     setGlobalError("");
-    setTestMessage("");
+    clearSuccessfulTest();
     setOpen(true);
   }
 
@@ -133,6 +159,10 @@ export function SourcesPanel({
     const form = new FormData(event.currentTarget);
     setGlobalError("");
     if (!validateForm(form)) return false;
+    if (sourceFormSignature(form) !== successfulTestSignature) {
+      setGlobalError("请先测试连接，确认连接成功后再保存。");
+      return false;
+    }
     const ok = await onSubmit(event, editingSource);
     if (ok) resetDialog(false);
     return ok;
@@ -150,6 +180,7 @@ export function SourcesPanel({
     setIsTesting(true);
     try {
       await onTest(form);
+      setSuccessfulTestSignature(sourceFormSignature(form));
       setTestMessage("连接测试成功，可以保存数据源。");
     } catch (testError) {
       setGlobalError(errorMessage(testError));
@@ -205,6 +236,7 @@ export function SourcesPanel({
             id="source-form"
             ref={formRef}
             onSubmit={handleSubmit}
+            onChange={clearSuccessfulTest}
           >
             <Field label="名称">
               <Input name="name" placeholder="生产库" defaultValue={editingValue?.name || ""} required />
@@ -234,7 +266,7 @@ export function SourcesPanel({
                 value={port}
                 onChange={(event) => {
                   setPort(event.target.value);
-                  setTestMessage("");
+                  clearSuccessfulTest();
                 }}
                 required
               />
@@ -258,7 +290,14 @@ export function SourcesPanel({
               <Input name="databaseName" placeholder="可选" defaultValue={editingValue?.databaseName || ""} />
             </Field>
             <Field label="备份执行位置">
-              <Select name="executionMode" value={executionMode} onValueChange={setExecutionMode}>
+              <Select
+                name="executionMode"
+                value={executionMode}
+                onValueChange={(nextExecutionMode) => {
+                  setExecutionMode(nextExecutionMode);
+                  clearSuccessfulTest();
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -281,7 +320,10 @@ export function SourcesPanel({
                     min="1"
                     max="65535"
                     value={remotePort}
-                    onChange={(event) => setRemotePort(event.target.value)}
+                    onChange={(event) => {
+                      setRemotePort(event.target.value);
+                      clearSuccessfulTest();
+                    }}
                     required
                   />
                   {fieldErrors.remotePort && <p className="field-error">{fieldErrors.remotePort}</p>}
@@ -291,7 +333,14 @@ export function SourcesPanel({
                   {fieldErrors.remoteUsername && <p className="field-error">{fieldErrors.remoteUsername}</p>}
                 </Field>
                 <Field label="认证方式">
-                  <Select name="remoteAuthMethod" value={remoteAuthMethod} onValueChange={setRemoteAuthMethod}>
+                  <Select
+                    name="remoteAuthMethod"
+                    value={remoteAuthMethod}
+                    onValueChange={(nextRemoteAuthMethod) => {
+                      setRemoteAuthMethod(nextRemoteAuthMethod);
+                      clearSuccessfulTest();
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -332,7 +381,7 @@ export function SourcesPanel({
             <Button type="button" variant="secondary" disabled={isSubmitting || isTesting} onClick={handleTestConnection}>
               {isTesting ? "测试中..." : "测试连接"}
             </Button>
-            <Button type="submit" form="source-form" disabled={isSubmitting}>
+            <Button type="submit" form="source-form" disabled={isSubmitting || successfulTestSignature === null}>
               保存
             </Button>
           </DialogFooter>
