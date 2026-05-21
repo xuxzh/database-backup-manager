@@ -80,7 +80,6 @@ export function SourcesPanel({
   function clearSuccessfulTest() {
     setSuccessfulTestSignature(null);
     setTestMessage("");
-    setDatabaseOptions([]);
   }
 
   function handleFormChange(event: FormEvent<HTMLFormElement>) {
@@ -136,6 +135,7 @@ export function SourcesPanel({
       setExecutionMode("local");
       setRemoteAuthMethod("key");
       setRemotePort("22");
+      setDatabaseOptions([]);
       setSelectedDatabaseName("");
     }
   }
@@ -159,11 +159,12 @@ export function SourcesPanel({
     setExecutionMode(source.executionMode);
     setRemoteAuthMethod(source.remoteAuthMethod || "key");
     setRemotePort(String(source.remotePort || 22));
-    setDatabaseOptions([]);
-    setSelectedDatabaseName(source.databaseName || "");
     setFieldErrors({});
     setGlobalError("");
     clearSuccessfulTest();
+    const savedDatabaseName = source.databaseName || "";
+    setDatabaseOptions(savedDatabaseName ? [savedDatabaseName] : []);
+    setSelectedDatabaseName(savedDatabaseName);
     setOpen(true);
   }
 
@@ -194,7 +195,7 @@ export function SourcesPanel({
     try {
       const result = await onTest(form);
       const databases = result.databases;
-      const currentDatabase = form.get("databaseName")?.toString().trim() || "";
+      const currentDatabase = form.get("databaseName")?.toString().trim() || selectedDatabaseName;
       const nextDatabase = databases.includes(currentDatabase) ? currentDatabase : databases[0] || "";
       setDatabaseOptions(databases);
       setSelectedDatabaseName(nextDatabase);
