@@ -124,11 +124,7 @@ impl BackupExecutor {
         let backup_date = now.format("%Y-%m-%d").to_string();
         let timestamp = now.format("%Y-%m-%d_%H%M%S").to_string();
         let database_slug = path_slug(&job.database_name);
-        let raw_file_name = if source.db_type == "postgres" {
-            format!("{database_slug}_{timestamp}.dump")
-        } else {
-            format!("{database_slug}_{timestamp}.sql")
-        };
+        let raw_file_name = raw_backup_file_name(&source.db_type, &database_slug, &timestamp);
         let raw_path = run_dir.join(&raw_file_name);
         source.password = Some(self.crypto.decrypt(&source.encrypted_password)?);
         source.remote_secret = source
@@ -268,10 +264,20 @@ fn path_slug(value: &str) -> String {
     }
 }
 
+fn raw_backup_file_name(db_type: &str, database_slug: &str, timestamp: &str) -> String {
+    let extension = match db_type {
+        "postgres" => "dump",
+        "mssql" => "bacpac",
+        _ => "sql",
+    };
+    format!("{database_slug}_{timestamp}.{extension}")
+}
+
 fn dump_tool_env_name(db_type: &str) -> &'static str {
     match db_type {
         "mysql" => "MYSQLDUMP_PATH",
         "postgres" => "PG_DUMP_PATH",
+        "mssql" => "SQLPACKAGE_PATH",
         _ => "对应数据库适配器的客户端路径环境变量",
     }
 }
@@ -284,6 +290,7 @@ fn client_install_hint(db_type: &str) -> &'static str {
         "postgres" => {
             "PostgreSQL 客户端工具，例如 macOS 上的 `brew install libpq` 或容器内的 `postgresql-client`"
         }
+        "mssql" => "SQL Server 客户端工具 `sqlpackage` 和 `sqlcmd`",
         _ => "对应数据库客户端工具",
     }
 }
@@ -392,6 +399,7 @@ fn build_remote_dump_command(
         .unwrap_or(match source.db_type.as_str() {
             "mysql" => "mysqldump",
             "postgres" => "pg_dump",
+            "mssql" => "sqlpackage",
             other => {
                 return Err(anyhow!(
                     "stage=dump unsupported remote database type: {other}"
@@ -434,6 +442,36 @@ fn build_remote_dump_command(
                 format!("--dbname={}", shell_quote(&job.database_name)),
                 "--format=custom".to_string(),
                 "--no-password".to_string(),
+            ]);
+        }
+        "mssql" => {
+            let temp_file = format!(
+                "/tmp/backup-manager-{}-{}.bacpac",
+                path_slug(&job.database_name),
+                uuid::Uuid::new_v4()
+            );
+            parts.push(format!("tmp={}", shell_quote(&temp_file)));
+            parts.push("&&".to_string());
+            parts.push(shell_quote(tool));
+            parts.extend([
+                "/Action:Export".to_string(),
+                format!(
+                    "/SourceServerName:{}",
+                    shell_quote(&format!("{},{}", source.host.trim(), source.port))
+                ),
+                format!("/SourceDatabaseName:{}", shell_quote(&job.database_name)),
+                format!("/SourceUser:{}", shell_quote(source.username.trim())),
+                format!("/SourcePassword:{}", shell_quote(password)),
+                "/SourceTrustServerCertificate:True".to_string(),
+                "/TargetFile:\"$tmp\"".to_string(),
+                "&&".to_string(),
+                "cat \"$tmp\"".to_string(),
+                ";".to_string(),
+                "status=$?".to_string(),
+                ";".to_string(),
+                "rm -f \"$tmp\"".to_string(),
+                ";".to_string(),
+                "exit $status".to_string(),
             ]);
         }
         other => {
@@ -542,7 +580,7 @@ fn truncate(value: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_remote_dump_command, path_slug};
+    use super::{build_remote_dump_command, path_slug, raw_backup_file_name};
     use chrono::Utc;
 
     use crate::domain::{BackupJob, DatabaseConnection};
@@ -579,6 +617,29 @@ mod tests {
         assert!(!command.contains("--file="));
     }
 
+    #[test]
+    fn raw_backup_file_name_uses_bacpac_for_mssql() {
+        let file_name = raw_backup_file_name("mssql", "app-db", "2026-05-21_120000");
+
+        assert_eq!(file_name, "app-db_2026-05-21_120000.bacpac");
+    }
+
+    #[test]
+    fn remote_mssql_command_exports_bacpac_and_streams_to_stdout() {
+        let source = remote_source("mssql");
+        let command = build_remote_dump_command(&source, &job()).unwrap();
+
+        assert!(command.contains("'sqlpackage' /Action:Export"));
+        assert!(command.contains("/SourceServerName:'127.0.0.1,1433'"));
+        assert!(command.contains("/SourceDatabaseName:'app'"));
+        assert!(command.contains("/SourceUser:'backup'"));
+        assert!(command.contains("/SourcePassword:'secret'"));
+        assert!(command.contains("/SourceTrustServerCertificate:True"));
+        assert!(command.contains("/TargetFile:"));
+        assert!(command.contains("cat "));
+        assert!(command.contains("rm -f "));
+    }
+
     fn remote_source(db_type: &str) -> DatabaseConnection {
         let now = Utc::now();
         DatabaseConnection {
@@ -586,7 +647,11 @@ mod tests {
             name: "source".into(),
             db_type: db_type.into(),
             host: "127.0.0.1".into(),
-            port: if db_type == "mysql" { 3306 } else { 5432 },
+            port: match db_type {
+                "mysql" => 3306,
+                "mssql" => 1433,
+                _ => 5432,
+            },
             username: "backup".into(),
             encrypted_password: "encrypted".into(),
             password: Some("secret".into()),

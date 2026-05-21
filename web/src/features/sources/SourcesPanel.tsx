@@ -27,6 +27,7 @@ type TestSourceResult = Promise<TestDatabaseConnectionResult>;
 const defaultPorts: Record<string, string> = {
   mysql: "3306",
   postgres: "5432",
+  mssql: "1433",
 };
 
 export function SourcesPanel({
@@ -213,7 +214,7 @@ export function SourcesPanel({
       <DataTable
         emptyText="暂无数据源"
         title="数据源列表"
-        description="配置 MySQL / PostgreSQL 连接信息。默认由管理台本机执行备份工具。"
+        description="配置 MySQL / PostgreSQL / SQL Server 连接信息。默认由管理台本机执行备份工具。"
         action={
           <Button type="button" onClick={openCreateDialog} disabled={isSubmitting}>
             新建数据源
@@ -269,6 +270,7 @@ export function SourcesPanel({
                 <SelectContent>
                   <SelectItem value="mysql">MySQL</SelectItem>
                   <SelectItem value="postgres">PostgreSQL</SelectItem>
+                  <SelectItem value="mssql">SQL Server</SelectItem>
                 </SelectContent>
               </Select>
             </Field>
@@ -396,7 +398,13 @@ export function SourcesPanel({
                 <Field label="远端工具路径">
                   <Input
                     name="remoteToolPath"
-                    placeholder={dbType === "mysql" ? "默认 mysqldump" : "默认 pg_dump"}
+                    placeholder={
+                      dbType === "mysql"
+                        ? "默认 mysqldump"
+                        : dbType === "mssql"
+                          ? "默认 sqlpackage"
+                          : "默认 pg_dump"
+                    }
                     defaultValue={editingValue?.remoteToolPath || ""}
                   />
                 </Field>

@@ -47,6 +47,7 @@ impl DatabaseRegistry {
         };
         registry.register(Arc::new(MySqlAdapter));
         registry.register(Arc::new(PostgresAdapter));
+        registry.register(Arc::new(MssqlAdapter));
         registry
     }
 
@@ -330,6 +331,131 @@ impl DatabaseAdapter for PostgresAdapter {
     }
 }
 
+pub struct MssqlAdapter;
+
+#[async_trait]
+impl DatabaseAdapter for MssqlAdapter {
+    fn db_type(&self) -> &'static str {
+        "mssql"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "SQL Server"
+    }
+
+    fn config_schema(&self) -> ConfigSchema {
+        ConfigSchema {
+            r#type: "mssql".to_string(),
+            display_name: self.display_name().to_string(),
+            fields: common_fields(1433),
+        }
+    }
+
+    fn validate_config(&self, config: &DatabaseConnection) -> anyhow::Result<()> {
+        require_connection(config)
+    }
+
+    async fn test_connection(&self, config: &DatabaseConnection) -> anyhow::Result<()> {
+        self.validate_config(config)?;
+        if config.execution_mode == "remoteSsh" {
+            return run_remote_test(config, build_remote_mssql_test_command(config)).await;
+        }
+        let server = mssql_server_name(config);
+        let output = Command::new(tool_program("SQLCMD_PATH", "sqlcmd"))
+            .args([
+                "-S",
+                server.as_str(),
+                "-U",
+                config.username.trim(),
+                "-P",
+                config.password.as_deref().unwrap_or_default(),
+                "-Q",
+                "SELECT 1",
+                "-C",
+                "-b",
+            ])
+            .output()
+            .await
+            .map_err(command_error("sqlcmd", "SQLCMD_PATH"))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            bail!(
+                "sqlcmd connection test failed: {}",
+                command_stderr(&output.stderr)
+            );
+        }
+    }
+
+    async fn list_databases(&self, config: &DatabaseConnection) -> anyhow::Result<Vec<String>> {
+        self.validate_config(config)?;
+        if config.execution_mode == "remoteSsh" {
+            let output =
+                run_remote_database_list(config, build_remote_mssql_database_list_command(config))
+                    .await?;
+            return Ok(parse_database_names(&output));
+        }
+        let server = mssql_server_name(config);
+        let output = Command::new(tool_program("SQLCMD_PATH", "sqlcmd"))
+            .args([
+                "-S",
+                server.as_str(),
+                "-U",
+                config.username.trim(),
+                "-P",
+                config.password.as_deref().unwrap_or_default(),
+                "-Q",
+                "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name",
+                "-h",
+                "-1",
+                "-W",
+                "-C",
+                "-b",
+            ])
+            .output()
+            .await
+            .map_err(command_error("sqlcmd", "SQLCMD_PATH"))?;
+        if output.status.success() {
+            Ok(parse_database_names(&output.stdout))
+        } else {
+            bail!(
+                "sqlcmd database list failed: {}",
+                command_stderr(&output.stderr)
+            );
+        }
+    }
+
+    fn build_backup_command(
+        &self,
+        config: &DatabaseConnection,
+        job: &BackupJob,
+        output_path: &Path,
+    ) -> anyhow::Result<BackupCommand> {
+        self.validate_config(config)?;
+        Ok(BackupCommand {
+            program: tool_program("SQLPACKAGE_PATH", "sqlpackage"),
+            args: vec![
+                "/Action:Export".to_string(),
+                format!("/SourceServerName:{}", mssql_server_name(config)),
+                format!("/SourceDatabaseName:{}", job.database_name.trim()),
+                format!("/SourceUser:{}", config.username.trim()),
+                format!(
+                    "/SourcePassword:{}",
+                    config.password.as_deref().unwrap_or_default()
+                ),
+                "/SourceTrustServerCertificate:True".to_string(),
+                format!("/TargetFile:{}", output_path.display()),
+            ],
+        })
+    }
+
+    fn build_restore_hint(&self, archive_file: &str) -> String {
+        format!(
+            "gunzip -c {archive_file} > backup.bacpac && sqlpackage /Action:Import /SourceFile:backup.bacpac /TargetServerName:<host>,<port> /TargetDatabaseName:<database> /TargetUser:<user> /TargetPassword:<password>"
+        )
+    }
+}
+
 fn common_fields(default_port: i64) -> Vec<ConfigField> {
     vec![
         ConfigField {
@@ -422,6 +548,10 @@ fn parse_database_names(output: &[u8]) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
         .collect()
+}
+
+fn mssql_server_name(config: &DatabaseConnection) -> String {
+    format!("{},{}", config.host.trim(), config.port)
 }
 
 async fn run_remote_test(
@@ -527,6 +657,27 @@ fn build_remote_postgres_database_list_command(config: &DatabaseConnection) -> S
     )
 }
 
+fn build_remote_mssql_test_command(config: &DatabaseConnection) -> String {
+    format!(
+        "sqlcmd -S {} -U {} -P {} -Q 'SELECT 1' -C -b",
+        shell_quote(&mssql_server_name(config)),
+        shell_quote(config.username.trim()),
+        shell_quote(config.password.as_deref().unwrap_or_default())
+    )
+}
+
+fn build_remote_mssql_database_list_command(config: &DatabaseConnection) -> String {
+    format!(
+        "sqlcmd -S {} -U {} -P {} -Q {} -h -1 -W -C -b",
+        shell_quote(&mssql_server_name(config)),
+        shell_quote(config.username.trim()),
+        shell_quote(config.password.as_deref().unwrap_or_default()),
+        shell_quote(
+            "SET NOCOUNT ON; SELECT name FROM sys.databases WHERE database_id > 4 ORDER BY name"
+        )
+    )
+}
+
 fn remote_ssh_command(
     config: &DatabaseConnection,
     identity_file: Option<&Path>,
@@ -608,9 +759,11 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        DatabaseAdapter, MySqlAdapter, PostgresAdapter, build_remote_mysql_database_list_command,
-        build_remote_mysql_test_command, build_remote_postgres_database_list_command,
-        build_remote_postgres_test_command, parse_database_names,
+        DatabaseAdapter, DatabaseRegistry, MssqlAdapter, MySqlAdapter, PostgresAdapter,
+        build_remote_mssql_database_list_command, build_remote_mssql_test_command,
+        build_remote_mysql_database_list_command, build_remote_mysql_test_command,
+        build_remote_postgres_database_list_command, build_remote_postgres_test_command,
+        parse_database_names,
     };
     use crate::domain::{BackupJob, DatabaseConnection};
 
@@ -620,7 +773,11 @@ mod tests {
             name: "source".into(),
             db_type: db_type.into(),
             host: "127.0.0.1".into(),
-            port: if db_type == "mysql" { 3306 } else { 5432 },
+            port: match db_type {
+                "mysql" => 3306,
+                "mssql" => 1433,
+                _ => 5432,
+            },
             username: "backup".into(),
             encrypted_password: "secret".into(),
             password: Some("secret".into()),
@@ -686,6 +843,52 @@ mod tests {
     }
 
     #[test]
+    fn registry_includes_mssql_adapter() {
+        let registry = DatabaseRegistry::with_defaults();
+
+        let adapter = registry.get("mssql").unwrap();
+
+        assert_eq!(adapter.display_name(), "SQL Server");
+        assert_eq!(adapter.config_schema().fields[1].default, Some(json!(1433)));
+    }
+
+    #[test]
+    fn mssql_command_exports_bacpac_with_sqlpackage() {
+        let command = MssqlAdapter
+            .build_backup_command(
+                &connection("mssql"),
+                &job(),
+                std::path::Path::new("/tmp/app.bacpac"),
+            )
+            .unwrap();
+
+        assert_eq!(command.program, "sqlpackage");
+        assert!(command.args.contains(&"/Action:Export".to_string()));
+        assert!(
+            command
+                .args
+                .contains(&"/SourceServerName:127.0.0.1,1433".to_string())
+        );
+        assert!(
+            command
+                .args
+                .contains(&"/SourceDatabaseName:app".to_string())
+        );
+        assert!(command.args.contains(&"/SourceUser:backup".to_string()));
+        assert!(command.args.contains(&"/SourcePassword:secret".to_string()));
+        assert!(
+            command
+                .args
+                .contains(&"/SourceTrustServerCertificate:True".to_string())
+        );
+        assert!(
+            command
+                .args
+                .contains(&"/TargetFile:/tmp/app.bacpac".to_string())
+        );
+    }
+
+    #[test]
     fn mysql_command_trims_connection_fields() {
         let mut connection = connection("mysql");
         connection.host = " 192.168.0.135 ".into();
@@ -725,6 +928,22 @@ mod tests {
     }
 
     #[test]
+    fn remote_mssql_test_command_runs_sqlcmd_query() {
+        let mut connection = connection("mssql");
+        connection.execution_mode = "remoteSsh".into();
+
+        let command = build_remote_mssql_test_command(&connection);
+
+        assert!(command.contains("sqlcmd"));
+        assert!(command.contains("-S '127.0.0.1,1433'"));
+        assert!(command.contains("-U 'backup'"));
+        assert!(command.contains("-P 'secret'"));
+        assert!(command.contains("-Q 'SELECT 1'"));
+        assert!(command.contains("-C"));
+        assert!(command.contains("-b"));
+    }
+
+    #[test]
     fn parses_database_list_output_with_blank_lines_removed() {
         let names = parse_database_names(b"app\n\nanalytics\n postgres \n");
 
@@ -752,5 +971,19 @@ mod tests {
         assert!(command.contains("psql"));
         assert!(command.contains("WHERE datistemplate = false"));
         assert!(command.contains("ORDER BY datname"));
+    }
+
+    #[test]
+    fn remote_mssql_database_list_command_queries_user_databases() {
+        let mut connection = connection("mssql");
+        connection.execution_mode = "remoteSsh".into();
+
+        let command = build_remote_mssql_database_list_command(&connection);
+
+        assert!(command.contains("sqlcmd"));
+        assert!(command.contains("-h -1"));
+        assert!(command.contains("-C"));
+        assert!(command.contains("FROM sys.databases"));
+        assert!(command.contains("WHERE database_id > 4"));
     }
 }

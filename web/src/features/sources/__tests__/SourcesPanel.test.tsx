@@ -116,4 +116,25 @@ describe("SourcesPanel", () => {
 
     expect(saveButton).toBeDisabled();
   });
+
+  it("offers SQL Server as a source type and applies the default port", async () => {
+    render(
+      <SourcesPanel
+        isSubmitting={false}
+        items={[]}
+        onDelete={vi.fn()}
+        onTest={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "新建数据源" }));
+
+    const typeSelect = screen.getAllByRole("combobox")[0];
+    fireEvent.click(typeSelect);
+    const sqlServerOptions = await screen.findAllByText("SQL Server");
+    fireEvent.click(sqlServerOptions[sqlServerOptions.length - 1]);
+
+    expect(screen.getByDisplayValue("1433")).toBeInTheDocument();
+  });
 });

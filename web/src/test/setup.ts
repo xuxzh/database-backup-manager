@@ -5,11 +5,13 @@ vi.mock("react-dom", () => ({
   createRoot: vi.fn(),
 }));
 
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}));
+global.ResizeObserver = class {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+} as unknown as typeof ResizeObserver;
+
+Element.prototype.scrollIntoView = vi.fn();
 
 global.Intl.DateTimeFormat = class {
   format(_date?: Date): string {
