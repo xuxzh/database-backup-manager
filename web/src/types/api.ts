@@ -61,6 +61,11 @@ export type UpsertDatabaseConnection = {
   configJson: JsonValue;
 };
 
+export type TestDatabaseConnectionResult = {
+  ok: boolean;
+  databases: string[];
+};
+
 export type BackupTarget = {
   id: string;
   name: string;

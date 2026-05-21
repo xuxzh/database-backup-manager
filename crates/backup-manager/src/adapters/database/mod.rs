@@ -25,6 +25,7 @@ pub trait DatabaseAdapter: Send + Sync {
     fn config_schema(&self) -> ConfigSchema;
     fn validate_config(&self, config: &DatabaseConnection) -> anyhow::Result<()>;
     async fn test_connection(&self, config: &DatabaseConnection) -> anyhow::Result<()>;
+    async fn list_databases(&self, config: &DatabaseConnection) -> anyhow::Result<Vec<String>>;
     fn build_backup_command(
         &self,
         config: &DatabaseConnection,
@@ -120,6 +121,43 @@ impl DatabaseAdapter for MySqlAdapter {
             Ok(())
         } else {
             bail!("mysqladmin ping failed: {}", command_stderr(&output.stderr));
+        }
+    }
+
+    async fn list_databases(&self, config: &DatabaseConnection) -> anyhow::Result<Vec<String>> {
+        self.validate_config(config)?;
+        if config.execution_mode == "remoteSsh" {
+            let output =
+                run_remote_database_list(config, build_remote_mysql_database_list_command(config))
+                    .await?;
+            return Ok(parse_database_names(&output));
+        }
+        let password = config.password.as_deref().unwrap_or_default();
+        let port = config.port.to_string();
+        let output = Command::new(tool_program("MYSQL_PATH", "mysql"))
+            .env("MYSQL_PWD", password)
+            .args([
+                "--batch",
+                "--skip-column-names",
+                "-h",
+                config.host.trim(),
+                "-P",
+                port.as_str(),
+                "-u",
+                config.username.trim(),
+                "-e",
+                "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME",
+            ])
+            .output()
+            .await
+            .map_err(command_error("mysql", "MYSQL_PATH"))?;
+        if output.status.success() {
+            Ok(parse_database_names(&output.stdout))
+        } else {
+            bail!(
+                "mysql database list failed: {}",
+                command_stderr(&output.stderr)
+            );
         }
     }
 
@@ -220,6 +258,47 @@ impl DatabaseAdapter for PostgresAdapter {
         } else {
             bail!(
                 "psql connection test failed: {}",
+                command_stderr(&output.stderr)
+            );
+        }
+    }
+
+    async fn list_databases(&self, config: &DatabaseConnection) -> anyhow::Result<Vec<String>> {
+        self.validate_config(config)?;
+        if config.execution_mode == "remoteSsh" {
+            let output = run_remote_database_list(
+                config,
+                build_remote_postgres_database_list_command(config),
+            )
+            .await?;
+            return Ok(parse_database_names(&output));
+        }
+        let password = config.password.as_deref().unwrap_or_default();
+        let port = config.port.to_string();
+        let output = Command::new(tool_program("PSQL_PATH", "psql"))
+            .env("PGPASSWORD", password)
+            .args([
+                "-h",
+                config.host.trim(),
+                "-p",
+                port.as_str(),
+                "-U",
+                config.username.trim(),
+                "-d",
+                "postgres",
+                "-w",
+                "-At",
+                "-c",
+                "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname",
+            ])
+            .output()
+            .await
+            .map_err(command_error("psql", "PSQL_PATH"))?;
+        if output.status.success() {
+            Ok(parse_database_names(&output.stdout))
+        } else {
+            bail!(
+                "postgres database list failed: {}",
                 command_stderr(&output.stderr)
             );
         }
@@ -336,6 +415,15 @@ fn command_stderr(stderr: &[u8]) -> String {
     }
 }
 
+fn parse_database_names(output: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(output)
+        .lines()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
 async fn run_remote_test(
     config: &DatabaseConnection,
     remote_command: String,
@@ -363,6 +451,33 @@ async fn run_remote_test(
     }
 }
 
+async fn run_remote_database_list(
+    config: &DatabaseConnection,
+    remote_command: String,
+) -> anyhow::Result<Vec<u8>> {
+    let auth_method = config.remote_auth_method.as_deref().unwrap_or("key");
+    let identity_file = if auth_method == "key" {
+        Some(write_remote_identity_file(config).await?)
+    } else {
+        None
+    };
+    let mut command = remote_ssh_command(config, identity_file.as_deref())?;
+    command.arg(remote_command);
+    let output = command.output().await;
+    if let Some(path) = identity_file {
+        let _ = fs::remove_file(path).await;
+    }
+    let output = output.map_err(command_error("ssh/sshpass", "PATH"))?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        bail!(
+            "remote database list failed: {}",
+            command_stderr(&output.stderr)
+        );
+    }
+}
+
 fn build_remote_mysql_test_command(config: &DatabaseConnection) -> String {
     format!(
         "MYSQL_PWD={} mysqladmin -h {} -P {} -u {} ping",
@@ -370,6 +485,17 @@ fn build_remote_mysql_test_command(config: &DatabaseConnection) -> String {
         shell_quote(config.host.trim()),
         config.port,
         shell_quote(config.username.trim())
+    )
+}
+
+fn build_remote_mysql_database_list_command(config: &DatabaseConnection) -> String {
+    format!(
+        "MYSQL_PWD={} mysql --batch --skip-column-names -h {} -P {} -u {} -e {}",
+        shell_quote(config.password.as_deref().unwrap_or_default()),
+        shell_quote(config.host.trim()),
+        config.port,
+        shell_quote(config.username.trim()),
+        shell_quote("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME")
     )
 }
 
@@ -387,6 +513,17 @@ fn build_remote_postgres_test_command(config: &DatabaseConnection) -> String {
         config.port,
         shell_quote(config.username.trim()),
         shell_quote(database)
+    )
+}
+
+fn build_remote_postgres_database_list_command(config: &DatabaseConnection) -> String {
+    format!(
+        "PGPASSWORD={} psql -h {} -p {} -U {} -d postgres -w -At -c {}",
+        shell_quote(config.password.as_deref().unwrap_or_default()),
+        shell_quote(config.host.trim()),
+        config.port,
+        shell_quote(config.username.trim()),
+        shell_quote("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname")
     )
 }
 
@@ -471,8 +608,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        DatabaseAdapter, MySqlAdapter, PostgresAdapter, build_remote_mysql_test_command,
-        build_remote_postgres_test_command,
+        DatabaseAdapter, MySqlAdapter, PostgresAdapter, build_remote_mysql_database_list_command,
+        build_remote_mysql_test_command, build_remote_postgres_database_list_command,
+        build_remote_postgres_test_command, parse_database_names,
     };
     use crate::domain::{BackupJob, DatabaseConnection};
 
@@ -584,5 +722,35 @@ mod tests {
         assert!(command.contains("PGPASSWORD='secret' psql"));
         assert!(command.contains("-d 'app'"));
         assert!(command.contains("-w -c 'SELECT 1'"));
+    }
+
+    #[test]
+    fn parses_database_list_output_with_blank_lines_removed() {
+        let names = parse_database_names(b"app\n\nanalytics\n postgres \n");
+
+        assert_eq!(names, vec!["app", "analytics", "postgres"]);
+    }
+
+    #[test]
+    fn remote_mysql_database_list_command_queries_schema_names() {
+        let mut connection = connection("mysql");
+        connection.execution_mode = "remoteSsh".into();
+
+        let command = build_remote_mysql_database_list_command(&connection);
+
+        assert!(command.contains("mysql --batch --skip-column-names"));
+        assert!(command.contains("SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA"));
+    }
+
+    #[test]
+    fn remote_postgres_database_list_command_excludes_templates() {
+        let mut connection = connection("postgres");
+        connection.execution_mode = "remoteSsh".into();
+
+        let command = build_remote_postgres_database_list_command(&connection);
+
+        assert!(command.contains("psql"));
+        assert!(command.contains("WHERE datistemplate = false"));
+        assert!(command.contains("ORDER BY datname"));
     }
 }

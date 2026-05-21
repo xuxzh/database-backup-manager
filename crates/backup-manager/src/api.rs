@@ -78,6 +78,13 @@ struct LoginResponse {
     token: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestSourceResponse {
+    ok: bool,
+    databases: Vec<String>,
+}
+
 async fn login(
     State(state): State<AppState>,
     Json(input): Json<LoginRequest>,
@@ -180,7 +187,7 @@ async fn test_source(
     _auth: Authenticated,
     State(state): State<AppState>,
     Json(input): Json<UpsertDatabaseConnection>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<TestSourceResponse>, ApiError> {
     let input = input.normalized();
     let now = Utc::now();
     let source = DatabaseConnection {
@@ -208,7 +215,11 @@ async fn test_source(
     };
     let adapter = state.database_registry.get(&source.db_type)?;
     adapter.test_connection(&source).await?;
-    Ok(Json(json!({ "ok": true })))
+    let databases = adapter.list_databases(&source).await?;
+    Ok(Json(TestSourceResponse {
+        ok: true,
+        databases,
+    }))
 }
 
 async fn delete_source(

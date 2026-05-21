@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import type { BackupJob, BackupRun, BackupRunLog, BackupTarget, DashboardStats, DatabaseConnection } from "./types/api";
+import type { BackupJob, BackupRun, BackupRunLog, BackupTarget, DashboardStats, DatabaseConnection, TestDatabaseConnectionResult } from "./types/api";
 import { AppShell } from "./app/AppShell";
 import { LoginPage } from "./features/auth/LoginPage";
 import { DashboardPanel } from "./features/dashboard/DashboardPanel";
@@ -18,6 +18,7 @@ import { login } from "./shared/api/auth";
 
 type TabKey = "dashboard" | "sources" | "targets" | "jobs" | "runs";
 type SubmitResult = Promise<boolean>;
+type TestSourceResult = Promise<TestDatabaseConnectionResult>;
 
 type AppData = {
   dashboard: DashboardStats | null;
@@ -177,13 +178,12 @@ function App() {
     return ok;
   }
 
-  async function handleTestSource(form: FormData): SubmitResult {
+  async function handleTestSource(form: FormData): TestSourceResult {
     const payload = toUpsertDatabaseConnection(form);
-    await request<{ ok: boolean }>("/sources/test", {
+    return await request<TestDatabaseConnectionResult>("/sources/test", {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    return true;
   }
 
   async function handleSaveTarget(event: FormEvent<HTMLFormElement>, target: BackupTarget | null): SubmitResult {

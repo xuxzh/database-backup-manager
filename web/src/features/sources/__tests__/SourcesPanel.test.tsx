@@ -4,7 +4,7 @@ import { SourcesPanel } from "../SourcesPanel";
 
 describe("SourcesPanel", () => {
   it("enables save only after required source fields pass a successful connection test", async () => {
-    const onTest = vi.fn().mockResolvedValue(true);
+    const onTest = vi.fn().mockResolvedValue({ ok: true, databases: ["app", "analytics"] });
     const onSubmit = vi.fn().mockResolvedValue(true);
 
     render(
@@ -38,6 +38,7 @@ describe("SourcesPanel", () => {
 
     await waitFor(() => expect(onTest).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(saveButton).toBeEnabled());
+    expect(screen.getByRole("combobox", { name: "默认数据库" })).toHaveTextContent("app");
 
     fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "10.0.0.2" } });
 

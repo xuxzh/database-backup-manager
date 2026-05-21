@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { FormEvent } from "react";
-import type { DatabaseConnection } from "@/types/api";
+import type { DatabaseConnection, TestDatabaseConnectionResult } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,7 @@ import { validatePort } from "@/shared/utils/validators";
 import { errorMessage } from "@/shared/utils/error";
 
 type SubmitResult = Promise<boolean>;
+type TestSourceResult = Promise<TestDatabaseConnectionResult>;
 const defaultPorts: Record<string, string> = {
   mysql: "3306",
   postgres: "5432",
@@ -38,7 +39,7 @@ export function SourcesPanel({
   isSubmitting: boolean;
   items: DatabaseConnection[];
   onDelete: (source: DatabaseConnection) => void;
-  onTest: (form: FormData) => SubmitResult;
+  onTest: (form: FormData) => TestSourceResult;
   onSubmit: (event: FormEvent<HTMLFormElement>, source: DatabaseConnection | null) => SubmitResult;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -54,6 +55,8 @@ export function SourcesPanel({
   const [testMessage, setTestMessage] = useState("");
   const [isTesting, setIsTesting] = useState(false);
   const [successfulTestSignature, setSuccessfulTestSignature] = useState<string | null>(null);
+  const [databaseOptions, setDatabaseOptions] = useState<string[]>([]);
+  const [selectedDatabaseName, setSelectedDatabaseName] = useState("");
 
   function sourceFormSignature(form: FormData): string {
     return JSON.stringify({
@@ -63,7 +66,6 @@ export function SourcesPanel({
       port: form.get("port")?.toString().trim() || "",
       username: form.get("username")?.toString().trim() || "",
       password: form.get("password")?.toString() || "",
-      databaseName: form.get("databaseName")?.toString().trim() || "",
       executionMode: form.get("executionMode")?.toString().trim() || "local",
       remoteHost: form.get("remoteHost")?.toString().trim() || "",
       remotePort: form.get("remotePort")?.toString().trim() || "",
@@ -78,6 +80,12 @@ export function SourcesPanel({
   function clearSuccessfulTest() {
     setSuccessfulTestSignature(null);
     setTestMessage("");
+    setDatabaseOptions([]);
+  }
+
+  function handleFormChange(event: FormEvent<HTMLFormElement>) {
+    if ((event.target as HTMLInputElement | HTMLSelectElement).name === "databaseName") return;
+    clearSuccessfulTest();
   }
 
   function validateForm(form: FormData, requireSecrets = false): boolean {
@@ -128,6 +136,7 @@ export function SourcesPanel({
       setExecutionMode("local");
       setRemoteAuthMethod("key");
       setRemotePort("22");
+      setSelectedDatabaseName("");
     }
   }
 
@@ -138,6 +147,8 @@ export function SourcesPanel({
     setExecutionMode("local");
     setRemoteAuthMethod("key");
     setRemotePort("22");
+    setDatabaseOptions([]);
+    setSelectedDatabaseName("");
     setOpen(true);
   }
 
@@ -148,6 +159,8 @@ export function SourcesPanel({
     setExecutionMode(source.executionMode);
     setRemoteAuthMethod(source.remoteAuthMethod || "key");
     setRemotePort(String(source.remotePort || 22));
+    setDatabaseOptions([]);
+    setSelectedDatabaseName(source.databaseName || "");
     setFieldErrors({});
     setGlobalError("");
     clearSuccessfulTest();
@@ -179,7 +192,12 @@ export function SourcesPanel({
     if (!validateForm(form, true)) return;
     setIsTesting(true);
     try {
-      await onTest(form);
+      const result = await onTest(form);
+      const databases = result.databases;
+      const currentDatabase = form.get("databaseName")?.toString().trim() || "";
+      const nextDatabase = databases.includes(currentDatabase) ? currentDatabase : databases[0] || "";
+      setDatabaseOptions(databases);
+      setSelectedDatabaseName(nextDatabase);
       setSuccessfulTestSignature(sourceFormSignature(form));
       setTestMessage("连接测试成功，可以保存数据源。");
     } catch (testError) {
@@ -236,7 +254,7 @@ export function SourcesPanel({
             id="source-form"
             ref={formRef}
             onSubmit={handleSubmit}
-            onChange={clearSuccessfulTest}
+            onChange={handleFormChange}
           >
             <Field label="名称">
               <Input name="name" placeholder="生产库" defaultValue={editingValue?.name || ""} required />
@@ -287,7 +305,22 @@ export function SourcesPanel({
               {fieldErrors.password && <p className="field-error">{fieldErrors.password}</p>}
             </Field>
             <Field label="默认数据库">
-              <Input name="databaseName" placeholder="可选" defaultValue={editingValue?.databaseName || ""} />
+              <Select
+                key={databaseOptions.join("\0")}
+                name="databaseName"
+                value={selectedDatabaseName}
+                onValueChange={setSelectedDatabaseName}
+                disabled={databaseOptions.length === 0}
+              >
+                <SelectTrigger aria-label="默认数据库">
+                  <SelectValue placeholder="测试连接后可选择" />
+                </SelectTrigger>
+                <SelectContent>
+                  {databaseOptions.map((databaseName) => (
+                    <SelectItem key={databaseName} value={databaseName}>{databaseName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <Field label="备份执行位置">
               <Select
