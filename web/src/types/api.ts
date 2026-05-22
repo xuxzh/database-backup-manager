@@ -66,6 +66,10 @@ export type TestDatabaseConnectionResult = {
   databases: string[];
 };
 
+export type SourceDatabasesResult = {
+  databases: string[];
+};
+
 export type BackupTarget = {
   id: string;
   name: string;

@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import type { BackupJob, BackupRun, BackupRunLog, BackupTarget, DashboardStats, DatabaseConnection, TestDatabaseConnectionResult } from "./types/api";
+import type { BackupJob, BackupRun, BackupRunLog, BackupTarget, DashboardStats, DatabaseConnection, SourceDatabasesResult, TestDatabaseConnectionResult } from "./types/api";
 import { AppShell } from "./app/AppShell";
 import { LoginPage } from "./features/auth/LoginPage";
 import { DashboardPanel } from "./features/dashboard/DashboardPanel";
@@ -190,6 +190,11 @@ function App() {
     });
   }
 
+  async function handleLoadSourceDatabases(sourceId: string): Promise<string[]> {
+    const result = await request<SourceDatabasesResult>(`/sources/${sourceId}/databases`);
+    return result.databases;
+  }
+
   async function handleSaveTarget(event: FormEvent<HTMLFormElement>, target: BackupTarget | null): SubmitResult {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -368,6 +373,7 @@ function App() {
           onRun={runJob}
           onGoToSources={() => setActiveTab("sources")}
           onGoToTargets={() => setActiveTab("targets")}
+          onLoadSourceDatabases={handleLoadSourceDatabases}
           onSubmit={handleSaveJob}
           onViewRun={(runId) => {
             setActiveTab("runs");

@@ -48,6 +48,7 @@ pub fn router(state: AppState) -> Router {
         .route("/schemas/targets", get(target_schemas))
         .route("/dashboard", get(dashboard))
         .route("/sources", get(list_sources).post(create_source))
+        .route("/sources/{id}/databases", get(list_source_databases))
         .route("/sources/{id}", put(update_source).delete(delete_source))
         .route("/sources/test", post(test_source))
         .route("/targets", get(list_targets).post(create_target))
@@ -82,6 +83,12 @@ struct LoginResponse {
 #[serde(rename_all = "camelCase")]
 struct TestSourceResponse {
     ok: bool,
+    databases: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SourceDatabasesResponse {
     databases: Vec<String>,
 }
 
@@ -220,6 +227,31 @@ async fn test_source(
         ok: true,
         databases,
     }))
+}
+
+async fn list_source_databases(
+    _auth: Authenticated,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<SourceDatabasesResponse>, ApiError> {
+    let databases = load_source_databases(&state, &id).await?;
+    Ok(Json(SourceDatabasesResponse { databases }))
+}
+
+async fn load_source_databases(state: &AppState, id: &str) -> Result<Vec<String>, ApiError> {
+    let mut source = state
+        .repository
+        .get_database_connection(id)
+        .await
+        .map_err(|_| ApiError::not_found("数据源不存在"))?;
+    source.password = Some(state.crypto.decrypt(&source.encrypted_password)?);
+    source.remote_secret = source
+        .encrypted_remote_secret
+        .as_deref()
+        .map(|secret| state.crypto.decrypt(secret))
+        .transpose()?;
+    let adapter = state.database_registry.get(&source.db_type)?;
+    Ok(adapter.list_databases(&source).await?)
 }
 
 async fn delete_source(
@@ -453,5 +485,147 @@ impl IntoResponse for ApiError {
             })),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{path::Path, sync::Arc};
+
+    use anyhow::bail;
+    use async_trait::async_trait;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    use super::*;
+    use crate::{
+        adapters::{
+            database::{BackupCommand, DatabaseAdapter},
+            target::TargetRegistry,
+        },
+        auth::SessionStore,
+        config::AppConfig,
+        crypto::Crypto,
+        domain::{BackupJob, ConfigSchema, UpsertDatabaseConnection},
+        executor::BackupExecutor,
+    };
+
+    struct SavedSourceListAdapter;
+
+    #[async_trait]
+    impl DatabaseAdapter for SavedSourceListAdapter {
+        fn db_type(&self) -> &'static str {
+            "saved-list-test"
+        }
+
+        fn display_name(&self) -> &'static str {
+            "Saved List Test"
+        }
+
+        fn config_schema(&self) -> ConfigSchema {
+            ConfigSchema {
+                r#type: self.db_type().to_string(),
+                display_name: self.display_name().to_string(),
+                fields: vec![],
+            }
+        }
+
+        fn validate_config(&self, _config: &DatabaseConnection) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn test_connection(&self, _config: &DatabaseConnection) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn list_databases(&self, config: &DatabaseConnection) -> anyhow::Result<Vec<String>> {
+            if config.password.as_deref() != Some("plain-password") {
+                bail!("password was not decrypted");
+            }
+            Ok(vec!["app".to_string(), "analytics".to_string()])
+        }
+
+        fn build_backup_command(
+            &self,
+            _config: &DatabaseConnection,
+            _job: &BackupJob,
+            _output_path: &Path,
+        ) -> anyhow::Result<BackupCommand> {
+            unreachable!("not used by this test")
+        }
+
+        fn build_restore_hint(&self, _archive_file: &str) -> String {
+            String::new()
+        }
+    }
+
+    #[tokio::test]
+    async fn loads_databases_for_saved_source_with_decrypted_password() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+        let repository = Arc::new(Repository::new(pool));
+        let config = Arc::new(AppConfig::from_env());
+        let crypto = Arc::new(Crypto::new(&config.app_secret).unwrap());
+        let encrypted_password = crypto.encrypt("plain-password").unwrap();
+        let source = repository
+            .create_database_connection(
+                UpsertDatabaseConnection {
+                    name: "source".into(),
+                    db_type: "saved-list-test".into(),
+                    host: "127.0.0.1".into(),
+                    port: 3306,
+                    username: "backup".into(),
+                    password: String::new(),
+                    database_name: Some("app".into()),
+                    execution_mode: "local".into(),
+                    remote_host: None,
+                    remote_port: None,
+                    remote_username: None,
+                    remote_auth_method: None,
+                    remote_secret: None,
+                    remote_tool_path: None,
+                    remote_working_dir: None,
+                    config_json: json!({}),
+                },
+                encrypted_password,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let mut database_registry = DatabaseRegistry::with_defaults();
+        database_registry.register(Arc::new(SavedSourceListAdapter));
+        let database_registry = Arc::new(database_registry);
+        let target_registry = Arc::new(TargetRegistry::with_defaults());
+        let executor = Arc::new(BackupExecutor::new(
+            repository.clone(),
+            database_registry.clone(),
+            target_registry.clone(),
+            crypto.clone(),
+            std::env::temp_dir(),
+        ));
+        let scheduler = Arc::new(
+            BackupScheduler::new(repository.clone(), executor.clone())
+                .await
+                .unwrap(),
+        );
+        let state = AppState {
+            config,
+            repository,
+            database_registry,
+            target_registry,
+            crypto,
+            sessions: Arc::new(SessionStore::default()),
+            executor,
+            scheduler,
+        };
+
+        let databases = load_source_databases(&state, &source.id).await.unwrap();
+
+        assert_eq!(databases, vec!["app", "analytics"]);
     }
 }

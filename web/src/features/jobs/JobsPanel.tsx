@@ -53,6 +53,7 @@ export function JobsPanel({
   onDelete,
   onGoToSources,
   onGoToTargets,
+  onLoadSourceDatabases,
   onRun,
   onSubmit,
   onViewRun,
@@ -66,6 +67,7 @@ export function JobsPanel({
   onDelete: (job: BackupJob) => void;
   onGoToSources: () => void;
   onGoToTargets: () => void;
+  onLoadSourceDatabases: (sourceId: string) => Promise<string[]>;
   onRun: (jobId: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>, job: BackupJob | null) => SubmitResult;
   onViewRun: (runId: string) => void;
@@ -73,6 +75,10 @@ export function JobsPanel({
   const [open, setOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<BackupJob | null>(null);
   const [schedule, setSchedule] = useState(cronTemplates[0].value);
+  const [databaseName, setDatabaseName] = useState("");
+  const [databaseOptions, setDatabaseOptions] = useState<string[]>([]);
+  const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
+  const [databaseLoadMessage, setDatabaseLoadMessage] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState("");
   const sourceNames = useMemo(() => mapNames(sources), [sources]);
@@ -112,6 +118,10 @@ export function JobsPanel({
     if (!nextOpen) {
       setEditingJob(null);
       setSchedule(cronTemplates[0].value);
+      setDatabaseName("");
+      setDatabaseOptions([]);
+      setIsLoadingDatabases(false);
+      setDatabaseLoadMessage("");
       setFieldErrors({});
       setGlobalError("");
     }
@@ -120,6 +130,10 @@ export function JobsPanel({
   function openCreateDialog() {
     setEditingJob(null);
     setSchedule(cronTemplates[0].value);
+    setDatabaseName("");
+    setDatabaseOptions([]);
+    setIsLoadingDatabases(false);
+    setDatabaseLoadMessage("");
     setFieldErrors({});
     setGlobalError("");
     setOpen(true);
@@ -128,9 +142,46 @@ export function JobsPanel({
   function openEditDialog(job: BackupJob) {
     setEditingJob(job);
     setSchedule(job.schedule);
+    setDatabaseName(job.databaseName);
+    setDatabaseOptions([job.databaseName]);
+    setIsLoadingDatabases(false);
+    setDatabaseLoadMessage("");
     setFieldErrors({});
     setGlobalError("");
     setOpen(true);
+    loadDatabases(job.databaseConnectionId, job.databaseName);
+  }
+
+  function handleSourceChange(sourceId: string) {
+    const defaultDatabase = sources.find((source) => source.id === sourceId)?.databaseName;
+    setDatabaseName(defaultDatabase || "");
+    loadDatabases(sourceId, defaultDatabase || "");
+  }
+
+  async function loadDatabases(sourceId: string, preferredDatabase: string) {
+    setDatabaseOptions(preferredDatabase ? [preferredDatabase] : []);
+    setDatabaseLoadMessage("");
+    setIsLoadingDatabases(true);
+
+    try {
+      const databases = await onLoadSourceDatabases(sourceId);
+      const options = Array.from(new Set([preferredDatabase, ...databases].filter(Boolean)));
+      setDatabaseOptions(options);
+      setDatabaseName(
+        preferredDatabase && options.includes(preferredDatabase)
+          ? preferredDatabase
+          : options[0] || "",
+      );
+      if (options.length === 0) {
+        setDatabaseLoadMessage("未获取到数据库列表，可手动输入库名。");
+      }
+    } catch {
+      setDatabaseOptions([]);
+      setDatabaseName(preferredDatabase);
+      setDatabaseLoadMessage("数据库列表获取失败，可手动输入库名。");
+    } finally {
+      setIsLoadingDatabases(false);
+    }
   }
 
   const editingValue = editingJob ? jobToFormValue(editingJob) : null;
@@ -285,8 +336,13 @@ export function JobsPanel({
                 {fieldErrors.name && <p className="field-error">{fieldErrors.name}</p>}
               </Field>
               <Field label="数据源">
-                <Select name="databaseConnectionId" defaultValue={editingValue?.databaseConnectionId} required>
-                  <SelectTrigger>
+                <Select
+                  name="databaseConnectionId"
+                  defaultValue={editingValue?.databaseConnectionId}
+                  onValueChange={handleSourceChange}
+                  required
+                >
+                  <SelectTrigger aria-label="数据源">
                     <SelectValue placeholder="选择数据源" />
                   </SelectTrigger>
                   <SelectContent>
@@ -299,7 +355,36 @@ export function JobsPanel({
                 </Select>
               </Field>
               <Field label="备份数据库">
-                <Input name="databaseName" placeholder="业务库名" defaultValue={editingValue?.databaseName || ""} required />
+                {databaseOptions.length > 0 ? (
+                  <Select
+                    key={databaseOptions.join("\0")}
+                    name="databaseName"
+                    value={databaseName}
+                    onValueChange={setDatabaseName}
+                    required
+                  >
+                    <SelectTrigger aria-label="备份数据库" disabled={isLoadingDatabases}>
+                      <SelectValue placeholder={isLoadingDatabases ? "正在加载数据库" : "选择数据库"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {databaseOptions.map((item) => (
+                        <SelectItem key={item} value={item}>
+                          {item}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    name="databaseName"
+                    placeholder="业务库名"
+                    value={databaseName}
+                    onChange={(event) => setDatabaseName(event.target.value)}
+                    disabled={isLoadingDatabases}
+                    required
+                  />
+                )}
+                {databaseLoadMessage && <p className="field-hint">{databaseLoadMessage}</p>}
                 {fieldErrors.databaseName && <p className="field-error">{fieldErrors.databaseName}</p>}
               </Field>
               <Field label="备份目标">
