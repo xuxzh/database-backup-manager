@@ -1,4 +1,12 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  RouterProvider,
+  createRoute,
+  createRouter,
+  createRootRoute,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
 import type { BackupJob, BackupRun, BackupRunLog, BackupTarget, DashboardStats, DatabaseConnection, SourceDatabasesResult, TestDatabaseConnectionResult } from "./types/api";
 import { AppShell } from "./app/AppShell";
 import { LoginPage } from "./features/auth/LoginPage";
@@ -18,6 +26,7 @@ import { login } from "./shared/api/auth";
 import { toast } from "sonner";
 
 type TabKey = "dashboard" | "sources" | "targets" | "jobs" | "runs";
+type AppSearch = { runId?: string };
 type SubmitResult = Promise<boolean>;
 type TestSourceResult = Promise<TestDatabaseConnectionResult>;
 
@@ -37,9 +46,35 @@ const emptyData: AppData = {
   runs: [],
 };
 
-function App() {
+const tabPaths: Record<TabKey, "/dashboard" | "/sources" | "/targets" | "/jobs" | "/runs"> = {
+  dashboard: "/dashboard",
+  sources: "/sources",
+  targets: "/targets",
+  jobs: "/jobs",
+  runs: "/runs",
+};
+
+function pathToTab(pathname: string): TabKey {
+  if (pathname === "/dashboard") return "dashboard";
+  if (pathname === "/sources") return "sources";
+  if (pathname === "/targets") return "targets";
+  if (pathname === "/jobs") return "jobs";
+  if (pathname === "/runs") return "runs";
+  return "dashboard";
+}
+
+function validateAppSearch(search: Record<string, unknown>): AppSearch {
+  return {
+    runId: typeof search.runId === "string" && search.runId.trim() ? search.runId : undefined,
+  };
+}
+
+function AppContent() {
+  const navigate = useNavigate();
+  const location = useRouterState({ select: (state) => state.location });
+  const activeTab = pathToTab(location.pathname);
+  const runIdFromUrl = (location.search as AppSearch).runId ?? null;
   const [token, setToken] = useState(() => localStorage.getItem("token"));
-  const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
   const [data, setData] = useState<AppData>(emptyData);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -104,6 +139,11 @@ function App() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!token || !runIdFromUrl || selectedRunId === runIdFromUrl) return;
+    loadRunLogs(runIdFromUrl);
+  }, [runIdFromUrl, selectedRunId, token]);
 
   useEffect(() => {
     if (!token || !activeRunId) return;
@@ -303,6 +343,15 @@ function App() {
     }
   }
 
+  function navigateToTab(tab: TabKey) {
+    navigate({ to: tabPaths[tab] });
+  }
+
+  function viewRun(runId: string) {
+    navigate({ to: "/runs", search: { runId } });
+    loadRunLogs(runId);
+  }
+
   if (!token) {
     return <LoginPage error={loginError} isSubmitting={isSubmitting} onSubmit={handleLogin} />;
   }
@@ -312,17 +361,14 @@ function App() {
       activeTab={activeTab}
       isLoading={isLoading}
       error={error}
-      onTabChange={(tab) => setActiveTab(tab as TabKey)}
+      onTabChange={(tab) => navigateToTab(tab as TabKey)}
       onLogout={logout}
       onRefresh={refresh}
     >
       {activeTab === "dashboard" && (
         <DashboardPanel
           dashboard={data.dashboard}
-          onViewRun={(runId) => {
-            setActiveTab("runs");
-            loadRunLogs(runId);
-          }}
+          onViewRun={viewRun}
         />
       )}
       {activeTab === "sources" && (
@@ -371,14 +417,11 @@ function App() {
             })
           }
           onRun={runJob}
-          onGoToSources={() => setActiveTab("sources")}
-          onGoToTargets={() => setActiveTab("targets")}
+          onGoToSources={() => navigateToTab("sources")}
+          onGoToTargets={() => navigateToTab("targets")}
           onLoadSourceDatabases={handleLoadSourceDatabases}
           onSubmit={handleSaveJob}
-          onViewRun={(runId) => {
-            setActiveTab("runs");
-            loadRunLogs(runId);
-          }}
+          onViewRun={viewRun}
         />
       )}
       {activeTab === "runs" && (
@@ -399,6 +442,62 @@ function App() {
       />
     </AppShell>
   );
+}
+
+const rootRoute = createRootRoute({
+  component: AppContent,
+  validateSearch: validateAppSearch,
+});
+
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/",
+});
+
+const sourcesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sources",
+});
+
+const dashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/dashboard",
+});
+
+const targetsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/targets",
+});
+
+const jobsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/jobs",
+});
+
+const runsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/runs",
+});
+
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  dashboardRoute,
+  sourcesRoute,
+  targetsRoute,
+  jobsRoute,
+  runsRoute,
+]);
+
+const router = createRouter({ routeTree });
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
+}
+
+function App() {
+  return <RouterProvider router={router} />;
 }
 
 function isRunInProgress(run: BackupRun | null) {

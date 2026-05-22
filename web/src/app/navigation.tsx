@@ -16,10 +16,10 @@ export const tabMeta: Record<string, { title: string; hint: string; icon: ReactN
   runs: { title: "运行记录", hint: "查看执行结果和阶段日志", icon: <History /> },
 };
 
-export const tabs: Array<{ key: string; label: string }> = [
-  { key: "dashboard", label: "仪表盘" },
-  { key: "sources", label: "数据源" },
-  { key: "targets", label: "备份目标" },
-  { key: "jobs", label: "备份任务" },
-  { key: "runs", label: "运行记录" },
+export const tabs: Array<{ key: string; label: string; path: string }> = [
+  { key: "dashboard", label: "仪表盘", path: "/dashboard" },
+  { key: "sources", label: "数据源", path: "/sources" },
+  { key: "targets", label: "备份目标", path: "/targets" },
+  { key: "jobs", label: "备份任务", path: "/jobs" },
+  { key: "runs", label: "运行记录", path: "/runs" },
 ];
