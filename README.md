@@ -39,6 +39,11 @@ make dev
 ```
 
 `make dev` 会并行启动后端和 Vite 开发服务器。开发服务器会把 `/api` 代理到 `http://127.0.0.1:8080`。
+如果后端监听地址不是默认值，可以在 `web/.env` 中设置 `VITE_API_PROXY_TARGET`，例如：
+
+```env
+VITE_API_PROXY_TARGET=http://127.0.0.1:18080
+```
 
 如果希望分开查看前后端日志，也可以使用两个终端分别运行：
 
@@ -71,3 +76,12 @@ make docker-up
 Docker 构建会自动执行前端 `pnpm install --frozen-lockfile` 和 `pnpm build`，不需要在宿主机提前构建 `web/dist/`。
 
 生产环境请修改 `APP_SECRET`、`ADMIN_USERNAME` 和 `ADMIN_PASSWORD`，并妥善保存 `APP_SECRET`。
+
+## 常用配置
+
+服务启动时会先读取 `.env`，再读取进程环境变量。常用配置包括：
+
+- `BIND_ADDR`：后端监听地址，默认 `0.0.0.0:8080`。
+- `BACKUPS_DIR`：服务本机临时备份目录，默认 `backups`。
+- `DEFAULT_TARGET_BASE_DIR`：新建备份目标时前端表单使用的默认远端目录，默认 `~/backups`。
+- `VITE_API_PROXY_TARGET`：仅用于前端开发服务器代理，默认 `http://127.0.0.1:8080`。

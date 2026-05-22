@@ -20,6 +20,16 @@ export type ConfigSchema = {
   fields: ConfigField[];
 };
 
+export type PublicAppConfig = {
+  server: {
+    bindAddr: string;
+  };
+  defaults: {
+    targetBaseDir: string;
+    sshPort: number;
+  };
+};
+
 export type DatabaseConnection = {
   id: string;
   name: string;

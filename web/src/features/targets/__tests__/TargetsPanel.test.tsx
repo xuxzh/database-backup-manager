@@ -11,11 +11,30 @@ vi.mock("sonner", () => ({
 }));
 
 describe("TargetsPanel", () => {
+  it("uses configured defaults when creating a backup target", () => {
+    render(
+      <TargetsPanel
+        defaults={{ targetBaseDir: "/srv/backups", sshPort: 2202 }}
+        isSubmitting={false}
+        items={[]}
+        onDelete={vi.fn()}
+        onTest={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "新建备份目标" }));
+
+    expect(screen.getByDisplayValue("2202")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("/srv/backups")).toBeInTheDocument();
+  });
+
   it("shows successful target tests as a toast instead of an inline alert", async () => {
     const onTest = vi.fn().mockResolvedValue(true);
 
     render(
       <TargetsPanel
+        defaults={{ targetBaseDir: "~/backups", sshPort: 22 }}
         isSubmitting={false}
         items={[]}
         onDelete={vi.fn()}

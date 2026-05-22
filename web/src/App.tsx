@@ -7,7 +7,7 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import type { BackupJob, BackupRun, BackupRunLog, BackupTarget, DashboardStats, DatabaseConnection, SourceDatabasesResult, TestDatabaseConnectionResult } from "./types/api";
+import type { BackupJob, BackupRun, BackupRunLog, BackupTarget, DashboardStats, DatabaseConnection, PublicAppConfig, SourceDatabasesResult, TestDatabaseConnectionResult } from "./types/api";
 import { AppShell } from "./app/AppShell";
 import { LoginPage } from "./features/auth/LoginPage";
 import { DashboardPanel } from "./features/dashboard/DashboardPanel";
@@ -23,6 +23,7 @@ import { toUpsertBackupTarget } from "./features/targets/targetForm";
 import { toUpsertBackupJob } from "./features/jobs/jobForm";
 import { ApiError, apiRequest } from "./api/client";
 import { login } from "./shared/api/auth";
+import { fallbackPublicConfig, getPublicConfig } from "./shared/api/config";
 import { toast } from "sonner";
 
 type TabKey = "dashboard" | "sources" | "targets" | "jobs" | "runs";
@@ -76,6 +77,7 @@ function AppContent() {
   const runIdFromUrl = (location.search as AppSearch).runId ?? null;
   const [token, setToken] = useState(() => localStorage.getItem("token"));
   const [data, setData] = useState<AppData>(emptyData);
+  const [publicConfig, setPublicConfig] = useState<PublicAppConfig>(fallbackPublicConfig);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginError, setLoginError] = useState("");
@@ -112,6 +114,22 @@ function AppContent() {
     },
     [logout, token],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getPublicConfig()
+      .then((config) => {
+        if (!cancelled) setPublicConfig(config);
+      })
+      .catch((configError) => {
+        console.warn("Failed to load public config", configError);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!token) return null;
@@ -388,6 +406,7 @@ function AppContent() {
       )}
       {activeTab === "targets" && (
         <TargetsPanel
+          defaults={publicConfig.defaults}
           isSubmitting={isSubmitting}
           items={data.targets}
           onDelete={(target) =>

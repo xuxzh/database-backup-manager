@@ -25,14 +25,20 @@ import { DismissibleAlert } from "@/shared/components/DismissibleAlert";
 import { toast } from "sonner";
 
 type SubmitResult = Promise<boolean>;
+type TargetDefaults = {
+  targetBaseDir: string;
+  sshPort: number;
+};
 
 export function TargetsPanel({
+  defaults,
   isSubmitting,
   items,
   onDelete,
   onTest,
   onSubmit,
 }: {
+  defaults: TargetDefaults;
   isSubmitting: boolean;
   items: BackupTarget[];
   onDelete: (target: BackupTarget) => void;
@@ -175,7 +181,7 @@ export function TargetsPanel({
               {fieldErrors.host && <p className="field-error">{fieldErrors.host}</p>}
             </Field>
             <Field label="端口">
-              <Input name="port" type="number" min="1" max="65535" defaultValue={editingValue?.port || 22} required />
+              <Input name="port" type="number" min="1" max="65535" defaultValue={editingValue?.port || defaults.sshPort} required />
               {fieldErrors.port && <p className="field-error">{fieldErrors.port}</p>}
             </Field>
             <Field label="SSH 用户名">
@@ -219,7 +225,7 @@ export function TargetsPanel({
               {fieldErrors.secret && <p className="field-error">{fieldErrors.secret}</p>}
             </Field>
             <Field label="远端目录">
-              <Input name="baseDir" placeholder="~/backups" defaultValue={editingValue?.baseDir || "~/backups"} required />
+              <Input name="baseDir" placeholder={defaults.targetBaseDir} defaultValue={editingValue?.baseDir || defaults.targetBaseDir} required />
               {fieldErrors.baseDir && <p className="field-error">{fieldErrors.baseDir}</p>}
             </Field>
           </form>

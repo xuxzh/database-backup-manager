@@ -43,6 +43,7 @@ impl FromRef<AppState> for Arc<SessionStore> {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/config/public", get(public_config))
         .route("/auth/login", post(login))
         .route("/schemas/databases", get(database_schemas))
         .route("/schemas/targets", get(target_schemas))
@@ -64,6 +65,44 @@ pub fn router(state: AppState) -> Router {
 
 async fn health() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicAppConfig {
+    server: PublicServerConfig,
+    defaults: PublicDefaultConfig,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicServerConfig {
+    bind_addr: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicDefaultConfig {
+    target_base_dir: String,
+    ssh_port: i64,
+}
+
+impl From<&AppConfig> for PublicAppConfig {
+    fn from(config: &AppConfig) -> Self {
+        Self {
+            server: PublicServerConfig {
+                bind_addr: config.bind_addr.clone(),
+            },
+            defaults: PublicDefaultConfig {
+                target_base_dir: config.default_target_base_dir.clone(),
+                ssh_port: 22,
+            },
+        }
+    }
+}
+
+async fn public_config(State(state): State<AppState>) -> Json<PublicAppConfig> {
+    Json(PublicAppConfig::from(state.config.as_ref()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -556,6 +595,30 @@ mod tests {
         fn build_restore_hint(&self, _archive_file: &str) -> String {
             String::new()
         }
+    }
+
+    #[tokio::test]
+    async fn public_config_exposes_only_safe_runtime_defaults() {
+        let config = AppConfig {
+            bind_addr: "127.0.0.1:18080".into(),
+            data_dir: "private-data".into(),
+            backups_dir: "private-backups".into(),
+            database_path: "private-data/backup-manager.db".into(),
+            admin_username: "admin".into(),
+            admin_password: "secret-password".into(),
+            app_secret: "secret-key".into(),
+            default_target_base_dir: "~/backups".into(),
+        };
+
+        let public_config = PublicAppConfig::from(&config);
+        let value = serde_json::to_value(public_config).unwrap();
+
+        assert_eq!(value["server"]["bindAddr"], "127.0.0.1:18080");
+        assert_eq!(value["defaults"]["targetBaseDir"], "~/backups");
+        assert_eq!(value["defaults"]["sshPort"], 22);
+        assert!(value.get("adminPassword").is_none());
+        assert!(value.get("appSecret").is_none());
+        assert!(value.get("databasePath").is_none());
     }
 
     #[tokio::test]

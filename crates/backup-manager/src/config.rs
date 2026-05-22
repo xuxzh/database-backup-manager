@@ -9,6 +9,7 @@ pub struct AppConfig {
     pub admin_username: String,
     pub admin_password: String,
     pub app_secret: String,
+    pub default_target_base_dir: String,
 }
 
 impl AppConfig {
@@ -28,6 +29,8 @@ impl AppConfig {
                 .unwrap_or_else(|_| "admin123".to_string()),
             app_secret: std::env::var("APP_SECRET")
                 .unwrap_or_else(|_| "dev-secret-change-me".to_string()),
+            default_target_base_dir: std::env::var("DEFAULT_TARGET_BASE_DIR")
+                .unwrap_or_else(|_| "~/backups".to_string()),
         }
     }
 
