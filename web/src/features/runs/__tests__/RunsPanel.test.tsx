@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { BackupJob, BackupRun, BackupRunLog } from "@/types/api";
@@ -75,5 +75,59 @@ describe("RunsPanel", () => {
     expect(onLoadLogs).toHaveBeenCalledWith("run-1");
     expect(screen.getByRole("dialog", { name: "运行日志" })).toBeInTheDocument();
     expect(screen.getByText(/备份执行完成/)).toBeInTheDocument();
+  });
+
+  it("selects the log text when the clipboard api is unavailable", async () => {
+    const onLoadLogs = vi.fn();
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const select = vi.spyOn(HTMLTextAreaElement.prototype, "select").mockImplementation(() => {});
+    const setSelectionRange = vi.spyOn(HTMLTextAreaElement.prototype, "setSelectionRange").mockImplementation(() => {});
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+
+    render(<RunsPanelHarness onLoadLogs={onLoadLogs} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "查看日志" }));
+    fireEvent.click(screen.getByRole("button", { name: "复制日志" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "按 Cmd+C" })).toBeInTheDocument());
+    expect(select).toHaveBeenCalled();
+    expect(setSelectionRange).toHaveBeenCalledWith(0, expect.any(Number));
+
+    if (clipboardDescriptor) {
+      Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+    }
+    select.mockRestore();
+    setSelectionRange.mockRestore();
+  });
+
+  it("selects the log text when clipboard writes are rejected", async () => {
+    const onLoadLogs = vi.fn();
+    const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const select = vi.spyOn(HTMLTextAreaElement.prototype, "select").mockImplementation(() => {});
+    const setSelectionRange = vi.spyOn(HTMLTextAreaElement.prototype, "setSelectionRange").mockImplementation(() => {});
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error("blocked")) },
+    });
+
+    render(<RunsPanelHarness onLoadLogs={onLoadLogs} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "查看日志" }));
+    fireEvent.click(screen.getByRole("button", { name: "复制日志" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "按 Cmd+C" })).toBeInTheDocument());
+    expect(select).toHaveBeenCalled();
+    expect(setSelectionRange).toHaveBeenCalledWith(0, expect.any(Number));
+
+    if (clipboardDescriptor) {
+      Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+    }
+    select.mockRestore();
+    setSelectionRange.mockRestore();
   });
 });

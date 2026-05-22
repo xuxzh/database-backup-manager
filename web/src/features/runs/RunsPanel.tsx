@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Copy, Pause, Play, Check } from "lucide-react";
+import { Copy, Pause, Play, Check, XCircle } from "lucide-react";
 import { DataTable } from "@/shared/components/DataTable";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { StatusBadge } from "@/shared/components/StatusBadge";
@@ -14,6 +14,29 @@ import { formatDate } from "@/shared/formatters/date";
 
 function mapNames(items: Array<{ id: string; name: string }>) {
   return Object.fromEntries(items.map((item) => [item.id, item.name]));
+}
+
+type CopyStatus = "idle" | "copied" | "selected" | "failed";
+
+async function copyText(text: string, fallbackTextarea: HTMLTextAreaElement | null): Promise<Exclude<CopyStatus, "idle">> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return "copied";
+    } catch {
+      // Fall through to selecting the visible log text when clipboard access is blocked.
+    }
+  }
+
+  if (!fallbackTextarea) {
+    return "failed";
+  }
+
+  fallbackTextarea.value = text;
+  fallbackTextarea.focus({ preventScroll: true });
+  fallbackTextarea.select();
+  fallbackTextarea.setSelectionRange(0, text.length);
+  return "selected";
 }
 
 export function RunsPanel({
@@ -31,12 +54,13 @@ export function RunsPanel({
 }) {
   const jobNames = useMemo(() => mapNames(jobs), [jobs]);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const [filterJobId, setFilterJobId] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSearch, setFilterSearch] = useState("");
   const [logDialogRunId, setLogDialogRunId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const copyBufferRef = useRef<HTMLTextAreaElement>(null);
   const dialogRun = runs.find((run) => run.id === logDialogRunId) ?? null;
   const dialogLogs = selectedRunId === logDialogRunId ? logs : [];
 
@@ -64,9 +88,14 @@ export function RunsPanel({
     const text = dialogLogs
       .map((log) => `[${formatDate(log.timestamp)}] ${log.level} ${log.stage}: ${log.message}`)
       .join("\n");
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    let status: Exclude<CopyStatus, "idle"> = "failed";
+    try {
+      status = await copyText(text, copyBufferRef.current);
+    } catch {
+      status = "failed";
+    }
+    setCopyStatus(status);
+    setTimeout(() => setCopyStatus("idle"), 2000);
   }
 
   return (
@@ -133,7 +162,7 @@ export function RunsPanel({
               onClick={() => {
                 setLogDialogRunId(run.id);
                 setAutoScroll(true);
-                setCopied(false);
+                setCopyStatus("idle");
                 onLoadLogs(run.id);
               }}
             >
@@ -159,8 +188,14 @@ export function RunsPanel({
                   {autoScroll ? "暂停滚动" : "自动滚动"}
                 </Button>
                 <Button type="button" variant="outline" size="sm" onClick={handleCopy}>
-                  {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                  {copied ? "已复制" : "复制日志"}
+                  {copyStatus === "copied" || copyStatus === "selected" ? (
+                    <Check className="size-4" />
+                  ) : copyStatus === "failed" ? (
+                    <XCircle className="size-4" />
+                  ) : (
+                    <Copy className="size-4" />
+                  )}
+                  {copyStatus === "copied" ? "已复制" : copyStatus === "selected" ? "按 Cmd+C" : copyStatus === "failed" ? "复制失败" : "复制日志"}
                 </Button>
               </div>
             )}
@@ -173,6 +208,7 @@ export function RunsPanel({
                   .map((log) => `[${formatDate(log.timestamp)}] ${log.level} ${log.stage}: ${log.message}`)
                   .join("\n")}
               </pre>
+              <textarea ref={copyBufferRef} className="sr-only" readOnly aria-hidden="true" tabIndex={-1} />
             </ScrollArea>
           ) : (
             <EmptyState text="正在加载日志" />
