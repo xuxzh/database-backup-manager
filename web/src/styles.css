@@ -594,6 +594,30 @@ svg {
   white-space: pre-wrap;
 }
 
+.run-log-dialog {
+  max-width: min(1100px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+}
+
+.run-log-dialog-header {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  justify-content: space-between;
+  padding-right: 28px;
+}
+
+.run-log-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.run-log-viewer {
+  height: min(560px, calc(100vh - 220px));
+}
+
 @media (max-width: 1180px) {
   .stats-grid,
   .form-grid {
@@ -627,6 +651,14 @@ svg {
   .data-table-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .run-log-dialog-header {
+    flex-direction: column;
+  }
+
+  .run-log-actions {
+    flex-wrap: wrap;
   }
 
   .stats-grid,

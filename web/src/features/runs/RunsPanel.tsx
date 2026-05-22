@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, useEffect } from "react";
 import type { BackupJob, BackupRun, BackupRunLog } from "@/types/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,7 +9,7 @@ import { Copy, Pause, Play, Check } from "lucide-react";
 import { DataTable } from "@/shared/components/DataTable";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { StatusBadge } from "@/shared/components/StatusBadge";
-import { stageLabel, latestRunLogText } from "@/shared/formatters/run";
+import { stageLabel } from "@/shared/formatters/run";
 import { formatDate } from "@/shared/formatters/date";
 
 function mapNames(items: Array<{ id: string; name: string }>) {
@@ -35,7 +35,10 @@ export function RunsPanel({
   const [filterJobId, setFilterJobId] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSearch, setFilterSearch] = useState("");
+  const [logDialogRunId, setLogDialogRunId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const dialogRun = runs.find((run) => run.id === logDialogRunId) ?? null;
+  const dialogLogs = selectedRunId === logDialogRunId ? logs : [];
 
   const filteredRuns = useMemo(() => {
     return runs.filter((run) => {
@@ -55,10 +58,10 @@ export function RunsPanel({
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [logs, autoScroll]);
+  }, [dialogLogs, autoScroll]);
 
   async function handleCopy() {
-    const text = logs
+    const text = dialogLogs
       .map((log) => `[${formatDate(log.timestamp)}] ${log.level} ${log.stage}: ${log.message}`)
       .join("\n");
     await navigator.clipboard.writeText(text);
@@ -105,15 +108,13 @@ export function RunsPanel({
             清除
           </Button>
         )}
-        <span className="text-sm text-muted-foreground ml-auto">
-          {filteredRuns.length} 条记录
-        </span>
+        <span className="text-sm text-muted-foreground ml-auto">{filteredRuns.length} 条记录</span>
       </div>
 
       <DataTable
         emptyText={runs.length ? "无符合条件的记录" : "暂无运行记录"}
         title="运行记录"
-        description="查看执行结果并选择一条记录加载阶段日志。"
+        description="查看执行结果，按需打开某次运行的阶段日志。"
         headers={["任务", "状态", "阶段", "开始时间", "结束时间", "错误", "日志"]}
         rows={filteredRuns.map((run) => ({
           key: run.id,
@@ -129,46 +130,55 @@ export function RunsPanel({
               type="button"
               size="sm"
               variant={selectedRunId === run.id ? "default" : "outline"}
-              onClick={() => onLoadLogs(run.id)}
+              onClick={() => {
+                setLogDialogRunId(run.id);
+                setAutoScroll(true);
+                setCopied(false);
+                onLoadLogs(run.id);
+              }}
             >
-              查看
+              查看日志
             </Button>,
           ],
         }))}
       />
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>运行日志</CardTitle>
-            <CardDescription>选择一条运行记录查看执行阶段日志。</CardDescription>
-          </div>
-          {logs.length > 0 && (
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setAutoScroll(!autoScroll)}>
-                {autoScroll ? <Pause className="size-4" /> : <Play className="size-4" />}
-                {autoScroll ? "暂停滚动" : "自动滚动"}
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={handleCopy}>
-                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                {copied ? "已复制" : "复制日志"}
-              </Button>
+
+      <Dialog open={Boolean(logDialogRunId)} onOpenChange={(open) => !open && setLogDialogRunId(null)}>
+        <DialogContent className="run-log-dialog" aria-describedby="run-log-description">
+          <DialogHeader className="run-log-dialog-header">
+            <div className="min-w-0">
+              <DialogTitle>运行日志</DialogTitle>
+              <DialogDescription id="run-log-description">
+                {dialogRun ? `${jobNames[dialogRun.backupJobId] || dialogRun.backupJobId} · ${formatDate(dialogRun.startedAt)}` : "正在加载运行日志"}
+              </DialogDescription>
             </div>
-          )}
-        </CardHeader>
-        <CardContent>
-          {logs.length ? (
-            <ScrollArea className="log-viewer" ref={scrollRef}>
+            {dialogLogs.length > 0 && (
+              <div className="run-log-actions">
+                <Button type="button" variant="outline" size="sm" onClick={() => setAutoScroll(!autoScroll)}>
+                  {autoScroll ? <Pause className="size-4" /> : <Play className="size-4" />}
+                  {autoScroll ? "暂停滚动" : "自动滚动"}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={handleCopy}>
+                  {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                  {copied ? "已复制" : "复制日志"}
+                </Button>
+              </div>
+            )}
+          </DialogHeader>
+
+          {dialogLogs.length ? (
+            <ScrollArea className="log-viewer run-log-viewer" ref={scrollRef}>
               <pre>
-                {logs
+                {dialogLogs
                   .map((log) => `[${formatDate(log.timestamp)}] ${log.level} ${log.stage}: ${log.message}`)
                   .join("\n")}
               </pre>
             </ScrollArea>
           ) : (
-            <EmptyState text="选择一条运行记录查看日志" />
+            <EmptyState text="正在加载日志" />
           )}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
