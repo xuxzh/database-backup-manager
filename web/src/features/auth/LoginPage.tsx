@@ -1,10 +1,10 @@
 import type { FormEvent } from "react";
 import { ShieldCheck } from "lucide-react";
-import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/shared/components/Field";
+import { DismissibleAlert } from "@/shared/components/DismissibleAlert";
 
 export function LoginPage({
   error,
@@ -43,11 +43,7 @@ export function LoginPage({
               {isSubmitting ? "登录中..." : "登录"}
             </Button>
           </form>
-          {error && (
-            <Alert className="mt-4" variant="destructive">
-              {error}
-            </Alert>
-          )}
+          <DismissibleAlert className="mt-4" message={error} />
         </CardContent>
       </Card>
     </main>

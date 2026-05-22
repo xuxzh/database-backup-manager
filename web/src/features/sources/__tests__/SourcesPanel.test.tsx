@@ -4,6 +4,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SourcesPanel } from "../SourcesPanel";
 import type { DatabaseConnection } from "@/types/api";
 
+const toastSuccess = vi.hoisted(() => vi.fn());
+
+vi.mock("sonner", () => ({
+  toast: {
+    success: toastSuccess,
+  },
+}));
+
 const savedSource: DatabaseConnection = {
   id: "source-1",
   name: "生产库",
@@ -27,6 +35,31 @@ const savedSource: DatabaseConnection = {
 };
 
 describe("SourcesPanel", () => {
+  it("shows successful connection tests as a toast instead of an inline alert", async () => {
+    const onTest = vi.fn().mockResolvedValue({ ok: true, databases: ["app"] });
+
+    render(
+      <SourcesPanel
+        isSubmitting={false}
+        items={[]}
+        onDelete={vi.fn()}
+        onTest={onTest}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "新建数据源" }));
+    fireEvent.change(screen.getByPlaceholderText("生产库"), { target: { value: "生产库" } });
+    fireEvent.change(screen.getByPlaceholderText("127.0.0.1"), { target: { value: "127.0.0.1" } });
+    fireEvent.change(screen.getByPlaceholderText("backup"), { target: { value: "backup" } });
+    fireEvent.change(screen.getByPlaceholderText("数据库密码"), { target: { value: "secret" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("连接测试成功，可以保存数据源。"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("shows the saved default database when editing a source before retesting", async () => {
     render(
       <TooltipProvider>

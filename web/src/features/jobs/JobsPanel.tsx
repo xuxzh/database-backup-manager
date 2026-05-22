@@ -23,6 +23,7 @@ import {
 import { DataTable } from "@/shared/components/DataTable";
 import { Field } from "@/shared/components/Field";
 import { StatusBadge } from "@/shared/components/StatusBadge";
+import { DismissibleAlert } from "@/shared/components/DismissibleAlert";
 import { IconButton } from "./IconButton";
 import { jobToFormValue } from "./jobForm";
 import { stageLabel, latestRunLogText, isRunInProgress, runningDuration } from "@/shared/formatters/run";
@@ -169,7 +170,7 @@ export function JobsPanel({
                 <strong>{activeRun.remotePath || "等待上传"}</strong>
               </div>
             </div>
-            {activeRun.errorMessage && <Alert variant="destructive">{activeRun.errorMessage}</Alert>}
+            <DismissibleAlert message={activeRun.errorMessage || ""} />
             <div className="active-run-footer">
               <div className="active-run-log">
                 <ListChecks className="size-4" />
@@ -272,9 +273,7 @@ export function JobsPanel({
             <DialogTitle>{isEditing ? "编辑备份任务" : "新建备份任务"}</DialogTitle>
             <DialogDescription>选择数据源和目标后，可配置 Cron 计划并支持手动触发。</DialogDescription>
           </DialogHeader>
-          {globalError && (
-            <Alert className="mb-4" variant="destructive">{globalError}</Alert>
-          )}
+          <DismissibleAlert className="mb-4" message={globalError} />
           <ScrollArea className="max-h-[70vh]">
             <form
               className="form-grid"

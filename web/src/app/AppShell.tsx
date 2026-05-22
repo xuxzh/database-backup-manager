@@ -1,18 +1,17 @@
 import { useState, type ReactNode } from "react";
 import { tabMeta, tabs } from "./navigation";
 import { LogOut, PanelLeft, RefreshCw, Server } from "lucide-react";
-import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { DismissibleAlert } from "@/shared/components/DismissibleAlert";
 
 export { tabs, tabMeta };
 
 export function AppShell({
   activeTab,
   isLoading,
-  notice,
   error,
   onTabChange,
   onLogout,
@@ -21,7 +20,6 @@ export function AppShell({
 }: {
   activeTab: string;
   isLoading: boolean;
-  notice: string;
   error: string;
   onTabChange: (tab: string) => void;
   onLogout: () => void;
@@ -121,11 +119,7 @@ export function AppShell({
             </Tooltip>
           </header>
 
-          {(notice || error) && (
-            <Alert className="mb-4" variant={error ? "destructive" : "success"}>
-              {error || notice}
-            </Alert>
-          )}
+          <DismissibleAlert className="mb-4" message={error} />
 
           {children}
         </section>

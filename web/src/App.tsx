@@ -15,6 +15,7 @@ import { toUpsertBackupTarget } from "./features/targets/targetForm";
 import { toUpsertBackupJob } from "./features/jobs/jobForm";
 import { ApiError, apiRequest } from "./api/client";
 import { login } from "./shared/api/auth";
+import { toast } from "sonner";
 
 type TabKey = "dashboard" | "sources" | "targets" | "jobs" | "runs";
 type SubmitResult = Promise<boolean>;
@@ -43,7 +44,6 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginError, setLoginError] = useState("");
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [runLogs, setRunLogs] = useState<BackupRunLog[]>([]);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -125,7 +125,11 @@ function App() {
 
         const latestRun = runs.find((run) => run.id === activeRunId);
         if (latestRun && !isRunInProgress(latestRun)) {
-          setNotice(latestRun.status === "Success" ? "备份已完成" : "备份执行失败，请查看运行日志");
+          if (latestRun.status === "Success") {
+            toast.success("备份已完成");
+          } else {
+            setError("备份执行失败，请查看运行日志");
+          }
           return;
         }
       } catch (pollError) {
@@ -156,7 +160,7 @@ function App() {
       });
       localStorage.setItem("token", response.token);
       setToken(response.token);
-      setNotice("登录成功");
+      toast.success("登录成功");
     } catch (loginErrorValue) {
       setLoginError(errorMessage(loginErrorValue));
     } finally {
@@ -174,7 +178,7 @@ function App() {
         body: JSON.stringify(payload),
       }),
     );
-    if (ok) setNotice(source ? "数据源已更新" : "数据源已保存");
+    if (ok) toast.success(source ? "数据源已更新" : "数据源已保存");
     return ok;
   }
 
@@ -196,7 +200,7 @@ function App() {
         body: JSON.stringify(payload),
       }),
     );
-    if (ok) setNotice(target ? "备份目标已更新" : "备份目标已保存");
+    if (ok) toast.success(target ? "备份目标已更新" : "备份目标已保存");
     return ok;
   }
 
@@ -219,14 +223,13 @@ function App() {
         body: JSON.stringify(payload),
       }),
     );
-    if (ok) setNotice(job ? "备份任务已更新" : "备份任务已保存");
+    if (ok) toast.success(job ? "备份任务已更新" : "备份任务已保存");
     return ok;
   }
 
   async function submitForm(form: HTMLFormElement, action: () => Promise<unknown>) {
     setIsSubmitting(true);
     setError("");
-    setNotice("");
     try {
       await action();
       form.reset();
@@ -243,7 +246,6 @@ function App() {
   async function runJob(jobId: string) {
     setIsSubmitting(true);
     setError("");
-    setNotice("");
     try {
       const run = await request<BackupRun>(`/jobs/${jobId}/run`, { method: "POST" });
       setActiveRunId(run.id);
@@ -253,11 +255,15 @@ function App() {
         ...current,
         runs: [run, ...current.runs.filter((item) => item.id !== run.id)],
       }));
-      setNotice("任务已提交，正在等待执行结果");
+      toast.info("任务已提交，正在等待执行结果");
       const refreshed = await refresh();
       const latestRun = refreshed?.runs.find((item) => item.id === run.id);
       if (latestRun && !isRunInProgress(latestRun)) {
-        setNotice(latestRun.status === "Success" ? "备份已完成" : "备份执行失败，请查看运行日志");
+        if (latestRun.status === "Success") {
+          toast.success("备份已完成");
+        } else {
+          setError("备份执行失败，请查看运行日志");
+        }
         setRunLogs(await request<BackupRunLog[]>(`/runs/${run.id}/logs`));
       }
     } catch (runError) {
@@ -270,10 +276,9 @@ function App() {
   async function deleteItem(target: NonNullable<DeleteTarget>) {
     setIsSubmitting(true);
     setError("");
-    setNotice("");
     try {
       await request<void>(target.path, { method: "DELETE" });
-      setNotice(target.successMessage);
+      toast.success(target.successMessage);
       setDeleteTarget(null);
       await refresh();
     } catch (deleteError) {
@@ -301,7 +306,6 @@ function App() {
     <AppShell
       activeTab={activeTab}
       isLoading={isLoading}
-      notice={notice}
       error={error}
       onTabChange={(tab) => setActiveTab(tab as TabKey)}
       onLogout={logout}

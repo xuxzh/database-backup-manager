@@ -4,7 +4,6 @@ import type { DatabaseConnection, TestDatabaseConnectionResult } from "@/types/a
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Alert } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
@@ -21,6 +20,8 @@ import { IconButton } from "./IconButton";
 import { sourceToFormValue } from "./sourceForm";
 import { validatePort } from "@/shared/utils/validators";
 import { errorMessage } from "@/shared/utils/error";
+import { DismissibleAlert } from "@/shared/components/DismissibleAlert";
+import { toast } from "sonner";
 
 type SubmitResult = Promise<boolean>;
 type TestSourceResult = Promise<TestDatabaseConnectionResult>;
@@ -53,7 +54,6 @@ export function SourcesPanel({
   const [remotePort, setRemotePort] = useState("22");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState("");
-  const [testMessage, setTestMessage] = useState("");
   const [isTesting, setIsTesting] = useState(false);
   const [successfulTestSignature, setSuccessfulTestSignature] = useState<string | null>(null);
   const [databaseOptions, setDatabaseOptions] = useState<string[]>([]);
@@ -80,7 +80,6 @@ export function SourcesPanel({
 
   function clearSuccessfulTest() {
     setSuccessfulTestSignature(null);
-    setTestMessage("");
   }
 
   function handleFormChange(event: FormEvent<HTMLFormElement>) {
@@ -190,7 +189,6 @@ export function SourcesPanel({
     if (!formRef.current) return;
     const form = new FormData(formRef.current);
     setGlobalError("");
-    setTestMessage("");
     if (!validateForm(form, true)) return;
     setIsTesting(true);
     try {
@@ -201,7 +199,7 @@ export function SourcesPanel({
       setDatabaseOptions(databases);
       setSelectedDatabaseName(nextDatabase);
       setSuccessfulTestSignature(sourceFormSignature(form));
-      setTestMessage("连接测试成功，可以保存数据源。");
+      toast.success("连接测试成功，可以保存数据源。");
     } catch (testError) {
       setGlobalError(errorMessage(testError));
     } finally {
@@ -245,12 +243,7 @@ export function SourcesPanel({
             <DialogTitle>{isEditing ? "编辑数据源" : "新建数据源"}</DialogTitle>
             <DialogDescription>数据库密码会由后端加密保存；编辑时留空表示沿用原密码。</DialogDescription>
           </DialogHeader>
-          {testMessage && (
-            <Alert className="mb-4" variant="success">{testMessage}</Alert>
-          )}
-          {globalError && (
-            <Alert className="mb-4" variant="destructive">{globalError}</Alert>
-          )}
+          <DismissibleAlert className="mb-4" message={globalError} />
           <form
             className="form-grid"
             id="source-form"

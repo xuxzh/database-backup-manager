@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Alert } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
@@ -22,6 +21,8 @@ import { IconButton } from "./IconButton";
 import { targetToFormValue } from "./targetForm";
 import { validatePort, validateRequiredString } from "@/shared/utils/validators";
 import { errorMessage } from "@/shared/utils/error";
+import { DismissibleAlert } from "@/shared/components/DismissibleAlert";
+import { toast } from "sonner";
 
 type SubmitResult = Promise<boolean>;
 
@@ -44,7 +45,6 @@ export function TargetsPanel({
   const [authMethod, setAuthMethod] = useState("key");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState("");
-  const [testMessage, setTestMessage] = useState("");
   const [isTesting, setIsTesting] = useState(false);
 
   function validateForm(form: FormData, requireSecrets = false): boolean {
@@ -76,7 +76,6 @@ export function TargetsPanel({
       setAuthMethod("key");
       setFieldErrors({});
       setGlobalError("");
-      setTestMessage("");
     }
   }
 
@@ -85,7 +84,6 @@ export function TargetsPanel({
     setAuthMethod("key");
     setFieldErrors({});
     setGlobalError("");
-    setTestMessage("");
     setOpen(true);
   }
 
@@ -94,7 +92,6 @@ export function TargetsPanel({
     setAuthMethod(target.authMethod);
     setFieldErrors({});
     setGlobalError("");
-    setTestMessage("");
     setOpen(true);
   }
 
@@ -115,12 +112,11 @@ export function TargetsPanel({
     if (!formRef.current) return;
     const form = new FormData(formRef.current);
     setGlobalError("");
-    setTestMessage("");
     if (!validateForm(form, true)) return;
     setIsTesting(true);
     try {
       await onTest(form);
-      setTestMessage("备份目标测试成功，可以保存目标。");
+      toast.success("备份目标测试成功，可以保存目标。");
     } catch (testError) {
       setGlobalError(errorMessage(testError));
     } finally {
@@ -163,12 +159,7 @@ export function TargetsPanel({
             <DialogTitle>{isEditing ? "编辑备份目标" : "新建备份目标"}</DialogTitle>
             <DialogDescription>当前支持 SSH 远端目标；编辑时密钥或密码留空表示沿用原值。</DialogDescription>
           </DialogHeader>
-          {testMessage && (
-            <Alert className="mb-4" variant="success">{testMessage}</Alert>
-          )}
-          {globalError && (
-            <Alert className="mb-4" variant="destructive">{globalError}</Alert>
-          )}
+          <DismissibleAlert className="mb-4" message={globalError} />
           <form
             className="form-grid"
             id="target-form"
@@ -197,7 +188,6 @@ export function TargetsPanel({
                 value={authMethod}
                 onValueChange={(value) => {
                   setAuthMethod(value);
-                  setTestMessage("");
                 }}
               >
                 <SelectTrigger>

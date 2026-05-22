@@ -199,6 +199,20 @@ svg {
   margin-bottom: 18px;
 }
 
+.persistent-alert {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding-right: 10px;
+}
+
+.persistent-alert-close {
+  width: 28px;
+  height: 28px;
+  color: inherit;
+}
+
 .topbar-main {
   display: flex;
   min-width: 0;
