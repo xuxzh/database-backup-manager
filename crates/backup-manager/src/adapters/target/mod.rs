@@ -32,6 +32,13 @@ pub trait BackupTargetAdapter: Send + Sync {
     async fn test_connection(&self, config: &BackupTarget) -> anyhow::Result<()>;
     async fn upload(&self, req: UploadRequest) -> anyhow::Result<UploadResult>;
     async fn verify(&self, target: &BackupTarget, remote_path: &str) -> anyhow::Result<()>;
+    async fn download(
+        &self,
+        target: &BackupTarget,
+        remote_path: &str,
+        local_path: &Path,
+    ) -> anyhow::Result<()>;
+    async fn delete_file(&self, target: &BackupTarget, remote_path: &str) -> anyhow::Result<()>;
 }
 
 #[derive(Clone)]
@@ -253,6 +260,65 @@ impl BackupTargetAdapter for SshTargetAdapter {
         } else {
             bail!(
                 "remote file verification failed with status {}: {}",
+                output.status,
+                stderr_text(&output.stderr)
+            );
+        }
+    }
+
+    async fn download(
+        &self,
+        target: &BackupTarget,
+        remote_path: &str,
+        local_path: &Path,
+    ) -> anyhow::Result<()> {
+        self.validate_config(target)?;
+        let identity_file = prepare_identity_file_for_target(target, None).await?;
+        let remote = format!("{}@{}:{}", target.username, target.host, remote_path);
+        let rsync_executable = rsync_executable_name(target)?;
+        let mut command = rsync_command(target, identity_file.as_deref())?;
+        let output = command
+            .arg("-az")
+            .arg("-e")
+            .arg(rsync_ssh_command(target, identity_file.as_deref())?)
+            .arg(&remote)
+            .arg(local_path)
+            .output()
+            .await
+            .map_err(command_error(rsync_executable))?;
+        cleanup_identity_file(identity_file.as_deref()).await;
+        if output.status.success() {
+            Ok(())
+        } else {
+            bail!(
+                "rsync download failed with status {}: {}",
+                output.status,
+                stderr_text(&output.stderr)
+            );
+        }
+    }
+
+    async fn delete_file(&self, target: &BackupTarget, remote_path: &str) -> anyhow::Result<()> {
+        self.validate_config(target)?;
+        let identity_file = prepare_identity_file_for_target(target, None).await?;
+        let remote = format!("{}@{}", target.username, target.host);
+        let executable = ssh_executable_name(target)?;
+        let mut command = ssh_command(target, identity_file.as_deref())?;
+        let output = command
+            .arg(&remote)
+            .arg("rm")
+            .arg("-f")
+            .arg("--")
+            .arg(remote_path)
+            .output()
+            .await
+            .map_err(command_error(executable))?;
+        cleanup_identity_file(identity_file.as_deref()).await;
+        if output.status.success() {
+            Ok(())
+        } else {
+            bail!(
+                "remote file delete failed with status {}: {}",
                 output.status,
                 stderr_text(&output.stderr)
             );

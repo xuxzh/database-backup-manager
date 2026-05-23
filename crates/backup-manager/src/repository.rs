@@ -369,6 +369,8 @@ impl Repository {
             file_size: None,
             checksum: None,
             remote_path: None,
+            file_deleted: false,
+            file_deleted_at: None,
             error_message: None,
             created_at: now,
         };
@@ -483,6 +485,24 @@ impl Repository {
             .fetch_all(&self.pool)
             .await?;
         rows.into_iter().map(row_backup_run).collect()
+    }
+
+    pub async fn get_run(&self, run_id: &str) -> anyhow::Result<BackupRun> {
+        let row = sqlx::query("SELECT * FROM backup_runs WHERE id = ?")
+            .bind(run_id)
+            .fetch_one(&self.pool)
+            .await?;
+        row_backup_run(row)
+    }
+
+    pub async fn mark_run_file_deleted(&self, run_id: &str) -> anyhow::Result<()> {
+        let deleted_at = Utc::now();
+        sqlx::query("UPDATE backup_runs SET file_deleted = 1, file_deleted_at = ? WHERE id = ?")
+            .bind(deleted_at.to_rfc3339())
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn list_run_logs(&self, run_id: &str) -> anyhow::Result<Vec<BackupRunLog>> {
@@ -634,6 +654,8 @@ fn row_backup_run(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<BackupRun> {
         file_size: row.try_get("file_size")?,
         checksum: row.try_get("checksum")?,
         remote_path: row.try_get("remote_path")?,
+        file_deleted: row.try_get::<i64, _>("file_deleted")? == 1,
+        file_deleted_at: parse_optional_time(row.try_get("file_deleted_at")?)?,
         error_message: row.try_get("error_message")?,
         created_at: parse_time(row.try_get("created_at")?)?,
     })
@@ -648,4 +670,99 @@ fn row_backup_run_log(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<BackupRunL
         stage: row.try_get("stage")?,
         message: row.try_get("message")?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn mark_run_file_deleted_hides_remote_file_from_future_downloads() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+        let repository = Repository::new(pool);
+        let source = repository
+            .create_database_connection(
+                UpsertDatabaseConnection {
+                    name: "source".into(),
+                    db_type: "mysql".into(),
+                    host: "db".into(),
+                    port: 3306,
+                    username: "backup".into(),
+                    password: String::new(),
+                    database_name: Some("app".into()),
+                    execution_mode: "local".into(),
+                    remote_host: None,
+                    remote_port: None,
+                    remote_username: None,
+                    remote_auth_method: None,
+                    remote_secret: None,
+                    remote_tool_path: None,
+                    remote_working_dir: None,
+                    config_json: json!({}),
+                },
+                "encrypted".into(),
+                None,
+            )
+            .await
+            .unwrap();
+        let target = repository
+            .create_backup_target(
+                UpsertBackupTarget {
+                    name: "target".into(),
+                    target_type: "ssh".into(),
+                    host: "backup".into(),
+                    port: 22,
+                    username: "backup".into(),
+                    auth_method: "password".into(),
+                    secret: String::new(),
+                    base_dir: "/backups".into(),
+                    config_json: json!({}),
+                },
+                "encrypted".into(),
+            )
+            .await
+            .unwrap();
+        let job = repository
+            .create_backup_job(UpsertBackupJob {
+                name: "job".into(),
+                database_connection_id: source.id,
+                database_name: "app".into(),
+                backup_target_id: target.id,
+                schedule: "0 0 2 * * *".into(),
+                compression: "gzip".into(),
+                remote_retention_days: 30,
+                local_retention_days: 7,
+                enabled: true,
+            })
+            .await
+            .unwrap();
+        let run = repository.create_run(&job.id).await.unwrap();
+        repository
+            .finish_run_success(
+                &run.id,
+                run.started_at,
+                "app.sql".into(),
+                "app.sql.gz".into(),
+                1024,
+                "checksum".into(),
+                "/backups/app.sql.gz".into(),
+            )
+            .await
+            .unwrap();
+
+        repository.mark_run_file_deleted(&run.id).await.unwrap();
+
+        let updated = repository.get_run(&run.id).await.unwrap();
+        assert!(updated.file_deleted);
+        assert!(updated.file_deleted_at.is_some());
+    }
 }

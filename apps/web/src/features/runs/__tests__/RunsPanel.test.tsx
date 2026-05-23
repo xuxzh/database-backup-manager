@@ -40,6 +40,8 @@ const run: BackupRun = {
   fileSize: 1024,
   checksum: "abc123",
   remotePath: "/backup/app.sql.gz",
+  fileDeleted: false,
+  fileDeletedAt: null,
   errorMessage: null,
   createdAt: "2026-05-22T00:33:30Z",
 };
@@ -73,7 +75,15 @@ const log: BackupRunLog = {
   message: "备份执行完成",
 };
 
-function RunsPanelHarness({ onLoadLogs }: { onLoadLogs: (runId: string) => void }) {
+function RunsPanelHarness({
+  onDeleteFile = vi.fn(),
+  onDownloadFile = vi.fn(),
+  onLoadLogs,
+}: {
+  onDeleteFile?: (run: BackupRun) => void;
+  onDownloadFile?: (run: BackupRun) => void;
+  onLoadLogs: (runId: string) => void;
+}) {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const logs = selectedRunId === run.id ? [log] : [];
 
@@ -83,6 +93,8 @@ function RunsPanelHarness({ onLoadLogs }: { onLoadLogs: (runId: string) => void 
       logs={logs}
       runs={[run]}
       selectedRunId={selectedRunId}
+      onDeleteFile={onDeleteFile}
+      onDownloadFile={onDownloadFile}
       onLoadLogs={(runId) => {
         setSelectedRunId(runId);
         onLoadLogs(runId);
@@ -99,6 +111,8 @@ describe("RunsPanel", () => {
         logs={[]}
         runs={[reportingRun, run, failedRun]}
         selectedRunId={null}
+        onDeleteFile={vi.fn()}
+        onDownloadFile={vi.fn()}
         onLoadLogs={vi.fn()}
       />,
     );
@@ -107,6 +121,35 @@ describe("RunsPanel", () => {
     expect(screen.getByRole("row", { name: /报表库备份.*1 条记录.*1 执行中/ })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /Success.*完成/ })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /Failed.*上传.*上传失败/ })).toBeInTheDocument();
+  });
+
+  it("shows remote file actions for successful backup runs", () => {
+    const onDeleteFile = vi.fn();
+    const onDownloadFile = vi.fn();
+    render(<RunsPanelHarness onDeleteFile={onDeleteFile} onDownloadFile={onDownloadFile} onLoadLogs={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "下载备份文件" }));
+    fireEvent.click(screen.getByRole("button", { name: "删除备份文件" }));
+
+    expect(onDownloadFile).toHaveBeenCalledWith(run);
+    expect(onDeleteFile).toHaveBeenCalledWith(run);
+  });
+
+  it("marks deleted remote files and disables downloads", () => {
+    render(
+      <RunsPanel
+        jobs={[job]}
+        logs={[]}
+        runs={[{ ...run, fileDeleted: true, fileDeletedAt: "2026-05-22T00:40:00Z" }]}
+        selectedRunId={null}
+        onDeleteFile={vi.fn()}
+        onDownloadFile={vi.fn()}
+        onLoadLogs={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("已删除")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下载备份文件" })).toBeDisabled();
   });
 
   it("opens run logs in a dialog from the selected run", () => {

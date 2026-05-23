@@ -149,6 +149,8 @@ export type BackupRun = {
   fileSize: number | null;
   checksum: string | null;
   remotePath: string | null;
+  fileDeleted: boolean;
+  fileDeletedAt: string | null;
   errorMessage: string | null;
   createdAt: string;
 };

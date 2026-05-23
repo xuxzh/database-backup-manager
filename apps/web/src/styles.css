@@ -704,6 +704,13 @@ svg {
   gap: 8px;
 }
 
+.run-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .run-log-viewer {
   height: min(560px, calc(100vh - 220px));
 }

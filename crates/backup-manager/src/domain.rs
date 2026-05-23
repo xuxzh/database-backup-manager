@@ -230,6 +230,8 @@ pub struct BackupRun {
     pub file_size: Option<i64>,
     pub checksum: Option<String>,
     pub remote_path: Option<String>,
+    pub file_deleted: bool,
+    pub file_deleted_at: Option<DateTime<Utc>>,
     pub error_message: Option<String>,
     pub created_at: DateTime<Utc>,
 }

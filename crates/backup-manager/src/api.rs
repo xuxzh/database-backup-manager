@@ -2,14 +2,18 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
+    body::Body,
     extract::{FromRef, Path, State},
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
+use tokio::fs;
+use uuid::Uuid;
 
 use crate::{
     adapters::{database::DatabaseRegistry, target::TargetRegistry},
@@ -60,6 +64,10 @@ pub fn router(state: AppState) -> Router {
         .route("/jobs/{id}/run", post(run_job))
         .route("/runs", get(list_runs))
         .route("/runs/{id}/logs", get(list_run_logs))
+        .route(
+            "/runs/{id}/file",
+            delete(delete_run_file).get(download_run_file),
+        )
         .with_state(state)
 }
 
@@ -469,6 +477,105 @@ async fn list_run_logs(
     Path(id): Path<String>,
 ) -> Result<Json<Vec<BackupRunLog>>, ApiError> {
     Ok(Json(state.repository.list_run_logs(&id).await?))
+}
+
+async fn download_run_file(
+    _auth: Authenticated,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    let (run, mut target, remote_path, archive_file_name) = run_file_context(&state, &id).await?;
+    if run.file_deleted {
+        return Err(ApiError::conflict("备份文件已删除"));
+    }
+    target.secret = Some(state.crypto.decrypt(&target.encrypted_secret)?);
+    let adapter = state.target_registry.get(&target.target_type)?;
+    let temp_path =
+        std::env::temp_dir().join(format!("backup-manager-download-{}", Uuid::new_v4()));
+    adapter
+        .download(&target, &remote_path, &temp_path)
+        .await
+        .map_err(|error| ApiError::from(anyhow::anyhow!("下载远端备份文件失败: {error:#}")))?;
+    let bytes = fs::read(&temp_path)
+        .await
+        .map_err(|error| ApiError::from(anyhow::anyhow!("读取下载临时文件失败: {error}")))?;
+    let _ = fs::remove_file(&temp_path).await;
+    if let Some(expected_checksum) = run.checksum.as_deref() {
+        let actual_checksum = hex::encode(Sha256::digest(&bytes));
+        if actual_checksum != expected_checksum {
+            return Err(ApiError::conflict("下载文件 checksum 校验失败"));
+        }
+    }
+    let disposition = format!(
+        "attachment; filename=\"{}\"",
+        archive_file_name.replace('"', "")
+    );
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/gzip".to_string()),
+            (header::CONTENT_DISPOSITION, disposition),
+        ],
+        Body::from(bytes),
+    )
+        .into_response())
+}
+
+async fn delete_run_file(
+    _auth: Authenticated,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let (run, mut target, remote_path, _archive_file_name) = run_file_context(&state, &id).await?;
+    if run.file_deleted {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+    target.secret = Some(state.crypto.decrypt(&target.encrypted_secret)?);
+    let adapter = state.target_registry.get(&target.target_type)?;
+    adapter
+        .delete_file(&target, &remote_path)
+        .await
+        .map_err(|error| ApiError::from(anyhow::anyhow!("删除远端备份文件失败: {error:#}")))?;
+    state.repository.mark_run_file_deleted(&id).await?;
+    state
+        .repository
+        .add_run_log(&id, "INFO", "file_delete", "已删除远端备份文件")
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn run_file_context(
+    state: &AppState,
+    run_id: &str,
+) -> Result<(BackupRun, BackupTarget, String, String), ApiError> {
+    let run = state
+        .repository
+        .get_run(run_id)
+        .await
+        .map_err(|_| ApiError::not_found("运行记录不存在"))?;
+    if run.status != RunStatus::Success {
+        return Err(ApiError::conflict("只有成功的运行记录可以管理备份文件"));
+    }
+    let remote_path = run
+        .remote_path
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ApiError::conflict("运行记录没有远端备份文件"))?;
+    let archive_file_name = run
+        .archive_file_name
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| ApiError::conflict("运行记录没有归档文件名"))?;
+    let job = state
+        .repository
+        .get_backup_job(&run.backup_job_id)
+        .await
+        .map_err(|_| ApiError::not_found("备份任务不存在"))?;
+    let target = state
+        .repository
+        .get_backup_target(&job.backup_target_id)
+        .await
+        .map_err(|_| ApiError::not_found("备份目标不存在"))?;
+    Ok((run, target, remote_path, archive_file_name))
 }
 
 #[derive(Debug)]

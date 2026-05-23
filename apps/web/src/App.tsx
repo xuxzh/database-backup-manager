@@ -351,6 +351,30 @@ function AppContent() {
     }
   }
 
+  async function downloadRunFile(run: BackupRun) {
+    setError("");
+    try {
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const response = await fetch(`/api/runs/${run.id}/file`, { headers });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new ApiError(data?.message || response.statusText || "下载失败", response.status, data?.code);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = run.archiveFileName || `${run.id}.gz`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setError(errorMessage(downloadError));
+    }
+  }
+
   async function loadRunLogs(runId: string) {
     setError("");
     setSelectedRunId(runId);
@@ -449,6 +473,14 @@ function AppContent() {
           logs={runLogs}
           runs={data.runs}
           selectedRunId={selectedRunId}
+          onDeleteFile={(run) =>
+            setDeleteTarget({
+              label: `备份文件「${run.archiveFileName || run.id}」`,
+              path: `/runs/${run.id}/file`,
+              successMessage: "备份文件已删除",
+            })
+          }
+          onDownloadFile={downloadRunFile}
           onLoadLogs={loadRunLogs}
         />
       )}

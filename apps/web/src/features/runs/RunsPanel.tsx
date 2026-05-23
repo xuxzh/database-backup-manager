@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Check, ChevronDown, ChevronRight, Copy, Pause, Play, XCircle } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy, Download, Pause, Play, Trash2, XCircle } from "lucide-react";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { StatusBadge } from "@/shared/components/StatusBadge";
 import { stageLabel } from "@/shared/formatters/run";
@@ -52,12 +52,16 @@ export function RunsPanel({
   logs,
   runs,
   selectedRunId,
+  onDeleteFile,
+  onDownloadFile,
   onLoadLogs,
 }: {
   jobs: BackupJob[];
   logs: BackupRunLog[];
   runs: BackupRun[];
   selectedRunId: string | null;
+  onDeleteFile: (run: BackupRun) => void;
+  onDownloadFile: (run: BackupRun) => void;
   onLoadLogs: (runId: string) => void;
 }) {
   const jobNames = useMemo(() => mapNames(jobs), [jobs]);
@@ -163,6 +167,9 @@ export function RunsPanel({
   }
 
   function renderRunRow(run: BackupRun) {
+    const hasRemoteFile = run.status === "Success" && Boolean(run.remotePath);
+    const canManageFile = hasRemoteFile && !run.fileDeleted;
+
     return (
       <TableRow key={run.id} data-state={selectedRunId === run.id ? "selected" : undefined}>
         <TableCell>
@@ -175,19 +182,30 @@ export function RunsPanel({
           <span className="error-cell">{run.errorMessage || ""}</span>
         </TableCell>
         <TableCell className="text-right">
-          <Button
-            type="button"
-            size="sm"
-            variant={selectedRunId === run.id ? "default" : "outline"}
-            onClick={() => {
-              setLogDialogRunId(run.id);
-              setAutoScroll(true);
-              setCopyStatus("idle");
-              onLoadLogs(run.id);
-            }}
-          >
-            查看日志
-          </Button>
+          <div className="run-row-actions">
+            {run.fileDeleted && <Badge variant="secondary">已删除</Badge>}
+            <Button type="button" size="sm" variant="outline" disabled={!hasRemoteFile || run.fileDeleted} onClick={() => onDownloadFile(run)}>
+              <Download className="size-4" />
+              下载备份文件
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={!canManageFile} onClick={() => onDeleteFile(run)}>
+              <Trash2 className="size-4" />
+              删除备份文件
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={selectedRunId === run.id ? "default" : "outline"}
+              onClick={() => {
+                setLogDialogRunId(run.id);
+                setAutoScroll(true);
+                setCopyStatus("idle");
+                onLoadLogs(run.id);
+              }}
+            >
+              查看日志
+            </Button>
+          </div>
         </TableCell>
       </TableRow>
     );
@@ -294,7 +312,7 @@ export function RunsPanel({
                                   <TableHead>开始时间</TableHead>
                                   <TableHead>结束时间</TableHead>
                                   <TableHead>错误</TableHead>
-                                  <TableHead className="text-right">日志</TableHead>
+                                  <TableHead className="text-right">操作</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>{group.runs.map(renderRunRow)}</TableBody>
