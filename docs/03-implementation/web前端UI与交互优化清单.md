@@ -2,20 +2,20 @@
 
 ## 1. 评估范围
 
-本文档聚焦 `web/` 前端管理界面的 UI、交互和前端用户体验，不包含后端执行器、调度器、数据库适配器和部署方案的实现调整。
+本文档聚焦 `apps/web/` 前端管理界面的 UI、交互和前端用户体验，不包含后端执行器、调度器、数据库适配器和部署方案的实现调整。
 
 本次评估基于当前代码静态阅读，主要参考：
 
-- `web/src/App.tsx`
-- `web/src/app/AppShell.tsx`
-- `web/src/features/auth/LoginPage.tsx`
-- `web/src/features/dashboard/DashboardPanel.tsx`
-- `web/src/features/sources/SourcesPanel.tsx`
-- `web/src/features/targets/TargetsPanel.tsx`
-- `web/src/features/jobs/JobsPanel.tsx`
-- `web/src/features/runs/RunsPanel.tsx`
-- `web/src/shared/components/DataTable.tsx`
-- `web/src/styles.css`
+- `apps/web/src/App.tsx`
+- `apps/web/src/app/AppShell.tsx`
+- `apps/web/src/features/auth/LoginPage.tsx`
+- `apps/web/src/features/dashboard/DashboardPanel.tsx`
+- `apps/web/src/features/sources/SourcesPanel.tsx`
+- `apps/web/src/features/targets/TargetsPanel.tsx`
+- `apps/web/src/features/jobs/JobsPanel.tsx`
+- `apps/web/src/features/runs/RunsPanel.tsx`
+- `apps/web/src/shared/components/DataTable.tsx`
+- `apps/web/src/styles.css`
 
 当前前端已经完成了第一轮管理台化改造：页面拆分、共享组件、基础表单校验、运行记录筛选、日志复制、日志自动滚动、任务执行状态卡片等能力已经具备。因此下一阶段重点不应是单纯换颜色或增加装饰，而是让备份运维流程更清晰、更可控、更不容易误操作。
 
@@ -248,7 +248,7 @@
 验证：
 
 ```bash
-cd web
+cd apps/web
 pnpm typecheck
 pnpm build
 ```
@@ -274,7 +274,7 @@ cargo run -p backup-manager
 验证：
 
 ```bash
-cd web
+cd apps/web
 pnpm typecheck
 pnpm build
 ```
@@ -296,7 +296,7 @@ pnpm build
 验证：
 
 ```bash
-cd web
+cd apps/web
 pnpm test
 pnpm typecheck
 pnpm build
@@ -317,7 +317,7 @@ pnpm build
 验证：
 
 ```bash
-cd web
+cd apps/web
 pnpm typecheck
 pnpm build
 ```
@@ -330,7 +330,7 @@ pnpm build
 - 不建议把管理台改成营销页风格。该系统面向自部署运维，应该保持克制、清晰、信息密集。
 - 不建议在 schema 表单之前继续为每种新数据库复制一套固定字段。
 - 不建议立即引入大型状态管理库。当前规模下可先通过 feature API 和局部状态整理解决问题。
-- 不建议手工编辑 `web/dist/`。生产产物应继续通过 `pnpm build` 生成。
+- 不建议手工编辑 `apps/web/dist/`。生产产物应继续通过 `pnpm build` 生成。
 
 ## 7. 推荐下一步
 

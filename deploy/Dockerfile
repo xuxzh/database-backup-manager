@@ -1,10 +1,11 @@
 FROM node:24-bookworm AS web-builder
-WORKDIR /app/web
+WORKDIR /app
 RUN corepack enable
-COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
-COPY web ./
-RUN pnpm build
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/package.json
+RUN pnpm install --frozen-lockfile --filter backup-manager-web...
+COPY apps/web apps/web
+RUN pnpm -C apps/web build
 
 FROM rust:1.94-bookworm AS builder
 WORKDIR /app
@@ -28,7 +29,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/target/release/backup-manager /usr/local/bin/backup-manager
-COPY --from=web-builder /app/web/dist /app/web/dist
+COPY --from=web-builder /app/apps/web/dist /app/apps/web/dist
 ENV DATA_DIR=/app/data \
     BACKUPS_DIR=/app/backups \
     BIND_ADDR=0.0.0.0:8080 \

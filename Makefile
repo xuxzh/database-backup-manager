@@ -1,4 +1,4 @@
-.PHONY: help run dev dev-backend dev-web web-build web-dev cargo-run build test fmt clippy docker-up
+.PHONY: help run dev dev-backend dev-web web-build web-dev e2e cargo-run build test fmt clippy docker-up
 
 help:
 	@echo "Available targets:"
@@ -7,6 +7,7 @@ help:
 	@echo "  make dev-backend Start only the Rust backend"
 	@echo "  make dev-web     Start only the Vite dev server"
 	@echo "  make web-build   Build frontend production assets"
+	@echo "  make e2e         Run end-to-end tests"
 	@echo "  make build       Build frontend assets and Rust workspace"
 	@echo "  make test        Run Rust and frontend tests"
 	@echo "  make fmt         Format Rust code"
@@ -23,10 +24,10 @@ dev-backend:
 	cargo run -p backup-manager
 
 dev-web:
-	pnpm -C web dev
+	pnpm -C apps/web dev
 
 web-build:
-	pnpm -C web build
+	pnpm -C apps/web build
 
 web-dev: dev-web
 
@@ -37,7 +38,10 @@ build: web-build
 
 test:
 	cargo test
-	pnpm -C web test
+	pnpm -C apps/web test
+
+e2e:
+	pnpm e2e
 
 fmt:
 	cargo fmt

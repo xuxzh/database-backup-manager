@@ -85,7 +85,10 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let api = api::router(state);
-    let web_dir = std::env::current_dir()?.join("web").join("dist");
+    let web_dir = std::env::current_dir()?
+        .join("apps")
+        .join("web")
+        .join("dist");
     let app = Router::new()
         .nest("/api", api)
         .fallback_service(

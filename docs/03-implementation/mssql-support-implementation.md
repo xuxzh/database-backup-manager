@@ -86,4 +86,4 @@
 - 运行 `cargo fmt`。
 - 运行 `cargo test`。
 - 涉及公开 API、适配器和执行器行为，运行 `cargo clippy --all-targets --all-features`。
-- 前端变更运行 `cd web && pnpm test` 和 `cd web && pnpm build`。
+- 前端变更运行 `cd apps/web && pnpm test` 和 `cd apps/web && pnpm build`。
