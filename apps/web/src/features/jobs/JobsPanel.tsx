@@ -534,7 +534,7 @@ export function JobsPanel({
               </Field>
               <Field label="备份目标">
                 <Select name="backupTargetId" defaultValue={editingValue?.backupTargetId} required>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="备份目标">
                     <SelectValue placeholder="选择备份目标" />
                   </SelectTrigger>
                   <SelectContent>

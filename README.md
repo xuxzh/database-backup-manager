@@ -10,10 +10,10 @@
 cp .env.example .env
 ```
 
-本地需要先准备 Rust 工具链、pnpm、数据库客户端工具、`openssh-client`、`rsync`。如果备份目标使用 SSH 密码认证，还需要安装 `sshpass`。前端静态资源由 Rust 服务托管，因此直接访问 `http://127.0.0.1:8080` 前，需要先生成 `web/dist/`：
+本地需要先准备 Rust 工具链、pnpm、数据库客户端工具、`openssh-client`、`rsync`。如果备份目标使用 SSH 密码认证，还需要安装 `sshpass`。前端静态资源由 Rust 服务托管，因此直接访问 `http://127.0.0.1:8080` 前，需要先生成 `apps/web/dist/`：
 
 ```bash
-pnpm -C web install
+pnpm install
 make run
 ```
 
@@ -21,25 +21,25 @@ make run
 
 如果启动、测试连接或备份执行时遇到依赖缺失、SSH 工具或数据库客户端问题，请参考 [常见问题](docs/06-operations/常见问题.md)。
 
-后续如果前端依赖没有变化，可以省略 `pnpm -C web install`，只重新执行：
+后续如果前端依赖没有变化，可以省略 `pnpm install`，只重新执行：
 
 ```bash
 make run
 ```
 
-`make run` 会先执行 `pnpm -C web build`，再执行 `cargo run -p backup-manager`。
+`make run` 会先执行 `pnpm -C apps/web build`，再执行 `cargo run -p backup-manager`。
 
 ## 前端开发
 
 前端使用 React、Vite、TypeScript 和 pnpm。开发 UI 时可以启动 Vite 开发服务器：
 
 ```bash
-pnpm -C web install
+pnpm install
 make dev
 ```
 
 `make dev` 会并行启动后端和 Vite 开发服务器。开发服务器会把 `/api` 代理到 `http://127.0.0.1:8080`。
-如果后端监听地址不是默认值，可以在 `web/.env` 中设置 `VITE_API_PROXY_TARGET`，例如：
+如果后端监听地址不是默认值，可以在 `apps/web/.env` 中设置 `VITE_API_PROXY_TARGET`，例如：
 
 ```env
 VITE_API_PROXY_TARGET=http://127.0.0.1:18080
@@ -52,7 +52,7 @@ make dev-backend
 make dev-web
 ```
 
-Vite 页面默认访问 `http://127.0.0.1:5173`。生产运行和 Docker 运行时不启动 Vite，Rust 服务只托管 `web/dist/` 下的构建产物。
+Vite 页面默认访问 `http://127.0.0.1:5173`。生产运行和 Docker 运行时不启动 Vite，Rust 服务只托管 `apps/web/dist/` 下的构建产物。
 
 常用 Makefile 命令：
 
@@ -62,9 +62,26 @@ make run        # 构建前端产物并启动后端服务
 make dev        # 并行启动后端和 Vite 开发服务
 make build      # 构建前端产物和 Rust workspace
 make test       # 运行 Rust 测试和前端测试
+make e2e        # 运行端到端测试
 make fmt        # 格式化 Rust 代码
 make clippy     # 运行 Rust Clippy 检查
 make docker-up  # 使用 Docker Compose 启动
+```
+
+## 端到端测试
+
+端到端测试位于 `apps/e2e/`，会启动真实 Rust 服务并通过浏览器访问后端托管的 `apps/web/dist/`。第一版测试只覆盖登录、主导航和备份任务管理流程，不依赖真实数据库或 SSH 目标。
+
+首次运行前安装 Chromium：
+
+```bash
+pnpm e2e:install
+```
+
+运行测试：
+
+```bash
+pnpm e2e
 ```
 
 ## Docker Compose
@@ -73,7 +90,7 @@ make docker-up  # 使用 Docker Compose 启动
 make docker-up
 ```
 
-Docker 构建会自动执行前端 `pnpm install --frozen-lockfile` 和 `pnpm build`，不需要在宿主机提前构建 `web/dist/`。
+Docker 构建会自动执行前端 `pnpm install --frozen-lockfile` 和 `pnpm build`，不需要在宿主机提前构建 `apps/web/dist/`。
 
 生产环境请修改 `APP_SECRET`、`ADMIN_USERNAME` 和 `ADMIN_PASSWORD`，并妥善保存 `APP_SECRET`。
 
