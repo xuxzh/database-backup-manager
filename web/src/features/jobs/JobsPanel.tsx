@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import type { BackupJob, BackupRun, BackupRunLog, DatabaseConnection, BackupTarget } from "@/types/api";
 import { Button } from "@/components/ui/button";
@@ -6,10 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert } from "@/components/ui/alert";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
-import { AlertCircle, ListChecks, Play } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronRight, ListChecks, Play } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
@@ -20,7 +21,7 @@ import {
   DialogTitle,
   DialogClose,
 } from "@/components/ui/dialog";
-import { DataTable } from "@/shared/components/DataTable";
+import { EmptyState } from "@/shared/components/EmptyState";
 import { Field } from "@/shared/components/Field";
 import { StatusBadge } from "@/shared/components/StatusBadge";
 import { DismissibleAlert } from "@/shared/components/DismissibleAlert";
@@ -38,6 +39,12 @@ const cronTemplates = [
   { label: "每 6 小时", value: "0 0 */6 * * *" },
   { label: "每周日 03:00", value: "0 0 3 * * 0" },
 ];
+
+type JobSourceGroup = {
+  key: string;
+  source: DatabaseConnection | null;
+  jobs: BackupJob[];
+};
 
 function mapNames(items: Array<{ id: string; name: string }>) {
   return Object.fromEntries(items.map((item) => [item.id, item.name]));
@@ -81,9 +88,31 @@ export function JobsPanel({
   const [databaseLoadMessage, setDatabaseLoadMessage] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState("");
-  const sourceNames = useMemo(() => mapNames(sources), [sources]);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const targetNames = useMemo(() => mapNames(targets), [targets]);
   const activeJobName = activeRun ? jobs.find((job) => job.id === activeRun.backupJobId)?.name : null;
+  const jobGroups = useMemo<JobSourceGroup[]>(() => {
+    const jobsBySource = new Map<string, BackupJob[]>();
+    for (const job of jobs) {
+      const sourceJobs = jobsBySource.get(job.databaseConnectionId) || [];
+      sourceJobs.push(job);
+      jobsBySource.set(job.databaseConnectionId, sourceJobs);
+    }
+
+    const groups: JobSourceGroup[] = sources.map((source) => ({
+      key: source.id,
+      source,
+      jobs: jobsBySource.get(source.id) || [],
+    }));
+
+    const knownSourceIds = new Set(sources.map((source) => source.id));
+    const orphanJobs = jobs.filter((job) => !knownSourceIds.has(job.databaseConnectionId));
+    if (orphanJobs.length) {
+      groups.push({ key: "__unknown-source", source: null, jobs: orphanJobs });
+    }
+
+    return groups;
+  }, [jobs, sources]);
 
   function validateForm(form: FormData): boolean {
     const errors: Record<string, string> = {};
@@ -187,6 +216,73 @@ export function JobsPanel({
   const editingValue = editingJob ? jobToFormValue(editingJob) : null;
   const isEditing = Boolean(editingJob);
 
+  function isGroupExpanded(group: JobSourceGroup) {
+    return expandedGroups[group.key] ?? group.jobs.length > 0;
+  }
+
+  function toggleGroup(group: JobSourceGroup) {
+    const expanded = isGroupExpanded(group);
+    setExpandedGroups((current) => ({ ...current, [group.key]: !expanded }));
+  }
+
+  function sourceDisplayName(group: JobSourceGroup) {
+    return group.source?.name || "未知数据源";
+  }
+
+  function sourceEndpoint(group: JobSourceGroup) {
+    return group.source ? `${group.source.host}:${group.source.port}` : "任务引用的数据源不存在";
+  }
+
+  function sourceType(group: JobSourceGroup) {
+    return group.source?.dbType || "unknown";
+  }
+
+  function enabledJobCount(group: JobSourceGroup) {
+    return group.jobs.filter((job) => job.enabled).length;
+  }
+
+  function runningJobCount(group: JobSourceGroup) {
+    return group.jobs.filter((job) => activeRun?.backupJobId === job.id && isRunInProgress(activeRun)).length;
+  }
+
+  function renderJobRow(job: BackupJob) {
+    const isCurrentJobRunning = activeRun?.backupJobId === job.id && isRunInProgress(activeRun);
+
+    return (
+      <TableRow key={job.id}>
+        <TableCell className="max-w-[260px] overflow-hidden text-ellipsis whitespace-nowrap">
+          <span className="font-medium">{job.name}</span>
+        </TableCell>
+        <TableCell className="max-w-[220px] overflow-hidden text-ellipsis whitespace-nowrap">{job.databaseName}</TableCell>
+        <TableCell className="max-w-[220px] overflow-hidden text-ellipsis whitespace-nowrap">
+          {targetNames[job.backupTargetId] || job.backupTargetId}
+        </TableCell>
+        <TableCell className="max-w-[220px] overflow-hidden text-ellipsis whitespace-nowrap">
+          <span className="font-mono text-xs">{job.schedule}</span>
+        </TableCell>
+        <TableCell>
+          <Badge variant={job.enabled ? "success" : "secondary"}>{job.enabled ? "是" : "否"}</Badge>
+        </TableCell>
+        <TableCell className="whitespace-nowrap text-right">
+          <div className="action-cell">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => onRun(job.id)}
+              disabled={isSubmitting || isCurrentJobRunning}
+            >
+              <Play className={isCurrentJobRunning ? "size-4 animate-pulse" : "size-4"} />
+              {isCurrentJobRunning ? "执行中" : "立即执行"}
+            </Button>
+            <IconButton icon="edit" label="编辑备份任务" disabled={isSubmitting} onClick={() => openEditDialog(job)} />
+            <IconButton label="删除备份任务" disabled={isSubmitting} onClick={() => onDelete(job)} />
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  }
+
   return (
     <section className="panel">
       {activeRun && (
@@ -265,58 +361,107 @@ export function JobsPanel({
           </div>
         </Alert>
       )}
-      <DataTable
-        emptyText="暂无备份任务"
-        title="备份任务列表"
-        description="配置 Cron 计划，支持手动触发执行。"
-        action={
-          !sources.length || !targets.length ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button type="button" disabled>
-                  新建备份任务
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                { !sources.length && !targets.length ? "请先创建数据源和备份目标" : !sources.length ? "请先创建数据源" : "请先创建备份目标" }
-              </TooltipContent>
-            </Tooltip>
+      <Card className="data-table-card job-group-card">
+        <CardHeader className="data-table-header">
+          <div className="min-w-0">
+            <CardTitle>备份任务列表</CardTitle>
+            <CardDescription>按数据源分组管理 Cron 计划，支持手动触发执行。</CardDescription>
+          </div>
+          <div className="shrink-0">
+            {!sources.length || !targets.length ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" disabled>
+                    新建备份任务
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {!sources.length && !targets.length ? "请先创建数据源和备份目标" : !sources.length ? "请先创建数据源" : "请先创建备份目标"}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <Button type="button" onClick={openCreateDialog} disabled={isSubmitting}>
+                新建备份任务
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="data-table-content">
+          {jobGroups.length ? (
+            <Table className="job-group-table">
+              <TableHeader className="sticky top-0 z-10 bg-muted/45">
+                <TableRow>
+                  <TableHead>数据源</TableHead>
+                  <TableHead>类型</TableHead>
+                  <TableHead>连接地址</TableHead>
+                  <TableHead>任务</TableHead>
+                  <TableHead>启用</TableHead>
+                  <TableHead>执行中</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {jobGroups.map((group) => {
+                  const expanded = isGroupExpanded(group);
+
+                  return (
+                    <Fragment key={group.key}>
+                      <TableRow className="job-source-row" key={`${group.key}-source`}>
+                        <TableCell className="max-w-[260px] overflow-hidden text-ellipsis whitespace-nowrap">
+                          <div className="job-source-cell">
+                            <Button type="button" size="sm" variant="outline" onClick={() => toggleGroup(group)}>
+                              {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                              {expanded ? "收起" : "展开"}
+                            </Button>
+                            <span className="font-medium">{sourceDisplayName(group)}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{sourceType(group)}</Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[260px] overflow-hidden text-ellipsis whitespace-nowrap">
+                          {sourceEndpoint(group)}
+                        </TableCell>
+                        <TableCell>{group.jobs.length} 个任务</TableCell>
+                        <TableCell>{enabledJobCount(group)} 个启用</TableCell>
+                        <TableCell>{runningJobCount(group)} 个执行中</TableCell>
+                      </TableRow>
+                      {expanded && (
+                        <TableRow
+                          aria-label={`${sourceDisplayName(group)}任务明细`}
+                          className="job-child-row"
+                          key={`${group.key}-jobs`}
+                        >
+                          <TableCell colSpan={6}>
+                            {group.jobs.length ? (
+                              <Table className="job-child-table">
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>名称</TableHead>
+                                    <TableHead>数据库</TableHead>
+                                    <TableHead>目标</TableHead>
+                                    <TableHead>计划</TableHead>
+                                    <TableHead>启用</TableHead>
+                                    <TableHead className="text-right">操作</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>{group.jobs.map(renderJobRow)}</TableBody>
+                              </Table>
+                            ) : (
+                              <EmptyState text="该数据源暂无备份任务" />
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </TableBody>
+            </Table>
           ) : (
-            <Button type="button" onClick={openCreateDialog} disabled={isSubmitting}>
-              新建备份任务
-            </Button>
-          )
-        }
-        headers={["名称", "数据源", "数据库", "目标", "计划", "启用", "操作"]}
-        rows={jobs.map((job) => {
-          const isCurrentJobRunning = activeRun?.backupJobId === job.id && isRunInProgress(activeRun);
-          return {
-            key: job.id,
-            cells: [
-              <span className="font-medium">{job.name}</span>,
-              sourceNames[job.databaseConnectionId] || job.databaseConnectionId,
-              job.databaseName,
-              targetNames[job.backupTargetId] || job.backupTargetId,
-              <span className="font-mono text-xs">{job.schedule}</span>,
-              <Badge variant={job.enabled ? "success" : "secondary"}>{job.enabled ? "是" : "否"}</Badge>,
-              <div className="action-cell">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => onRun(job.id)}
-                  disabled={isSubmitting || isCurrentJobRunning}
-                >
-                  <Play className={isCurrentJobRunning ? "size-4 animate-pulse" : "size-4"} />
-                  {isCurrentJobRunning ? "执行中" : "立即执行"}
-                </Button>
-                <IconButton icon="edit" label="编辑备份任务" disabled={isSubmitting} onClick={() => openEditDialog(job)} />
-                <IconButton label="删除备份任务" disabled={isSubmitting} onClick={() => onDelete(job)} />
-              </div>,
-            ],
-          };
-        })}
-      />
+            <EmptyState text="暂无备份任务" />
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog open={open} onOpenChange={resetDialog}>
         <DialogContent className="max-w-4xl">

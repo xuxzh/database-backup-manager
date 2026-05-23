@@ -57,6 +57,51 @@ const job: BackupJob = {
 };
 
 describe("JobsPanel", () => {
+  it("groups backup jobs by database source", () => {
+    const reportingSource: DatabaseConnection = {
+      ...source,
+      id: "source-2",
+      name: "报表库",
+      host: "10.0.0.20",
+      port: 5432,
+      dbType: "postgres",
+      databaseName: "reports",
+    };
+    const reportingJob: BackupJob = {
+      ...job,
+      id: "job-2",
+      name: "报表库备份",
+      databaseConnectionId: "source-2",
+      databaseName: "reports",
+      enabled: false,
+    };
+
+    render(
+      <TooltipProvider>
+        <JobsPanel
+          activeRun={null}
+          activeRunLogs={[]}
+          isSubmitting={false}
+          jobs={[job, reportingJob]}
+          sources={[source, reportingSource]}
+          targets={[target]}
+          onDelete={vi.fn()}
+          onGoToSources={vi.fn()}
+          onGoToTargets={vi.fn()}
+          onLoadSourceDatabases={vi.fn()}
+          onRun={vi.fn()}
+          onSubmit={vi.fn()}
+          onViewRun={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByRole("row", { name: /收起 生产库 mysql 127\.0\.0\.1:3306 1 个任务 1 个启用/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /收起 报表库 postgres 10\.0\.0\.20:5432 1 个任务 0 个启用/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /分析库备份 analytics 备份服务器 0 0 2 \* \* \* 是/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /报表库备份 reports 备份服务器 0 0 2 \* \* \* 否/ })).toBeInTheDocument();
+  });
+
   it("loads backup databases from the selected source when creating a job", async () => {
     const onLoadSourceDatabases = vi.fn().mockResolvedValue(["app", "analytics"]);
 

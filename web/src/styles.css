@@ -308,6 +308,51 @@ svg {
   height: 32px;
 }
 
+.job-group-table {
+  min-width: 880px;
+}
+
+.job-source-row {
+  background: hsl(210 40% 98%);
+}
+
+.job-source-row:hover {
+  background: hsl(210 40% 96%);
+}
+
+.job-source-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.job-source-cell button {
+  height: 28px;
+  padding-inline: 8px 10px;
+}
+
+.job-child-row > td {
+  background: hsl(210 40% 99%);
+  padding: 0;
+}
+
+.job-child-table {
+  min-width: 760px;
+  border-left: 3px solid hsl(215 20% 86%);
+}
+
+.job-child-table th {
+  height: 36px;
+  background: hsl(210 40% 98%);
+}
+
+.job-child-table td,
+.job-child-table th {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
 .stack-form {
   display: grid;
   gap: 16px;
