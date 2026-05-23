@@ -382,9 +382,41 @@ svg {
   padding: 0;
 }
 
+.run-child-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .run-child-table {
   min-width: 780px;
+  table-layout: fixed;
   border-left: 3px solid hsl(215 20% 86%);
+}
+
+.data-table-content .run-child-table {
+  min-width: 780px;
+}
+
+.run-child-table th:nth-child(1),
+.run-child-table td:nth-child(1) {
+  width: 104px;
+}
+
+.run-child-table th:nth-child(2),
+.run-child-table td:nth-child(2) {
+  width: 112px;
+}
+
+.run-child-table th:nth-child(3),
+.run-child-table td:nth-child(3),
+.run-child-table th:nth-child(4),
+.run-child-table td:nth-child(4) {
+  width: 168px;
+}
+
+.run-child-table th:nth-child(6),
+.run-child-table td:nth-child(6) {
+  width: 300px;
 }
 
 .run-child-table th {
@@ -652,6 +684,15 @@ svg {
   white-space: nowrap;
 }
 
+.run-child-table .error-cell {
+  display: -webkit-box;
+  max-width: none;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .filter-bar {
   display: flex;
   align-items: center;
@@ -783,6 +824,11 @@ svg {
 
   .filter-bar > * {
     width: 100%;
+  }
+
+  .run-child-table-scroll {
+    width: calc(100vw - 36px);
+    max-width: calc(100vw - 36px);
   }
 
   .table-scroll-wrapper {

@@ -179,7 +179,9 @@ export function RunsPanel({
         <TableCell>{formatDate(run.startedAt)}</TableCell>
         <TableCell>{formatDate(run.finishedAt)}</TableCell>
         <TableCell>
-          <span className="error-cell">{run.errorMessage || ""}</span>
+          <span className="error-cell" title={run.errorMessage || undefined}>
+            {run.errorMessage || ""}
+          </span>
         </TableCell>
         <TableCell className="text-right">
           <div className="run-row-actions">
@@ -304,19 +306,21 @@ export function RunsPanel({
                       {expanded && (
                         <TableRow aria-label={`${groupDisplayName(group)}运行明细`} className="run-child-row" key={`${group.key}-runs`}>
                           <TableCell colSpan={5}>
-                            <Table className="run-child-table">
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>状态</TableHead>
-                                  <TableHead>阶段</TableHead>
-                                  <TableHead>开始时间</TableHead>
-                                  <TableHead>结束时间</TableHead>
-                                  <TableHead>错误</TableHead>
-                                  <TableHead className="text-right">操作</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>{group.runs.map(renderRunRow)}</TableBody>
-                            </Table>
+                            <div className="run-child-table-scroll">
+                              <Table className="run-child-table">
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>状态</TableHead>
+                                    <TableHead>阶段</TableHead>
+                                    <TableHead>开始时间</TableHead>
+                                    <TableHead>结束时间</TableHead>
+                                    <TableHead>错误</TableHead>
+                                    <TableHead className="text-right">操作</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>{group.runs.map(renderRunRow)}</TableBody>
+                              </Table>
+                            </div>
                           </TableCell>
                         </TableRow>
                       )}

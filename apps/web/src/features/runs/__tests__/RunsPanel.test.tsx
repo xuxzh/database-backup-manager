@@ -1,4 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { BackupJob, BackupRun, BackupRunLog } from "@/types/api";
@@ -163,6 +165,16 @@ describe("RunsPanel", () => {
     expect(onLoadLogs).toHaveBeenCalledWith("run-1");
     expect(screen.getByRole("dialog", { name: "运行日志" })).toBeInTheDocument();
     expect(screen.getByText(/备份执行完成/)).toBeInTheDocument();
+  });
+
+  it("constrains long error messages inside the run detail table", () => {
+    const css = readFileSync(resolve(__dirname, "../../../styles.css"), "utf8");
+
+    expect(css).toMatch(/\.run-child-table\s*\{[^}]*table-layout:\s*fixed/s);
+    expect(css).toMatch(/\.run-child-table-scroll\s*\{[^}]*overflow-x:\s*auto/s);
+    expect(css).toMatch(/\.data-table-content\s+\.run-child-table\s*\{[^}]*min-width:\s*780px/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*780px\)[\s\S]*\.run-child-table-scroll\s*\{[^}]*width:\s*calc\(100vw - 36px\)/s);
+    expect(css).toMatch(/\.run-child-table\s+\.error-cell\s*\{/);
   });
 
   it("selects the log text when the clipboard api is unavailable", async () => {
