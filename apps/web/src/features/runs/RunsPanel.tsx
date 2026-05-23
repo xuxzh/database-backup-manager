@@ -1,12 +1,14 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { BackupJob, BackupRun, BackupRunLog } from "@/types/api";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Copy, Pause, Play, Check, XCircle } from "lucide-react";
-import { DataTable } from "@/shared/components/DataTable";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Check, ChevronDown, ChevronRight, Copy, Pause, Play, XCircle } from "lucide-react";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { StatusBadge } from "@/shared/components/StatusBadge";
 import { stageLabel } from "@/shared/formatters/run";
@@ -17,6 +19,12 @@ function mapNames(items: Array<{ id: string; name: string }>) {
 }
 
 type CopyStatus = "idle" | "copied" | "selected" | "failed";
+
+type RunJobGroup = {
+  key: string;
+  job: BackupJob | null;
+  runs: BackupRun[];
+};
 
 async function copyText(text: string, fallbackTextarea: HTMLTextAreaElement | null): Promise<Exclude<CopyStatus, "idle">> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
@@ -58,6 +66,7 @@ export function RunsPanel({
   const [filterJobId, setFilterJobId] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSearch, setFilterSearch] = useState("");
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [logDialogRunId, setLogDialogRunId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const copyBufferRef = useRef<HTMLTextAreaElement>(null);
@@ -78,6 +87,28 @@ export function RunsPanel({
     });
   }, [runs, filterJobId, filterStatus, filterSearch]);
 
+  const runGroups = useMemo<RunJobGroup[]>(() => {
+    const runsByJob = new Map<string, BackupRun[]>();
+    for (const run of filteredRuns) {
+      const jobRuns = runsByJob.get(run.backupJobId) || [];
+      jobRuns.push(run);
+      runsByJob.set(run.backupJobId, jobRuns);
+    }
+
+    const groups: RunJobGroup[] = jobs
+      .map((job) => ({ key: job.id, job, runs: runsByJob.get(job.id) || [] }))
+      .filter((group) => group.runs.length > 0);
+
+    const knownJobIds = new Set(jobs.map((job) => job.id));
+    for (const [jobId, jobRuns] of runsByJob.entries()) {
+      if (!knownJobIds.has(jobId)) {
+        groups.push({ key: jobId, job: null, runs: jobRuns });
+      }
+    }
+
+    return groups;
+  }, [filteredRuns, jobs]);
+
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -96,6 +127,70 @@ export function RunsPanel({
     }
     setCopyStatus(status);
     setTimeout(() => setCopyStatus("idle"), 2000);
+  }
+
+  function isGroupExpanded(group: RunJobGroup) {
+    return expandedGroups[group.key] ?? true;
+  }
+
+  function toggleGroup(group: RunJobGroup) {
+    setExpandedGroups((current) => ({
+      ...current,
+      [group.key]: !isGroupExpanded(group),
+    }));
+  }
+
+  function groupDisplayName(group: RunJobGroup) {
+    return group.job?.name || group.key;
+  }
+
+  function latestStartedAt(group: RunJobGroup) {
+    return group.runs.reduce<string | null>((latest, run) => {
+      if (!latest || run.startedAt > latest) return run.startedAt;
+      return latest;
+    }, null);
+  }
+
+  function statusSummary(group: RunJobGroup) {
+    const successCount = group.runs.filter((run) => run.status === "Success").length;
+    const failedCount = group.runs.filter((run) => run.status === "Failed").length;
+    const runningCount = group.runs.filter((run) => run.status === "Pending" || run.status === "Running").length;
+    const parts = [];
+    if (successCount) parts.push(`${successCount} 成功`);
+    if (failedCount) parts.push(`${failedCount} 失败`);
+    if (runningCount) parts.push(`${runningCount} 执行中`);
+    return parts.length ? parts.join(" / ") : "无状态";
+  }
+
+  function renderRunRow(run: BackupRun) {
+    return (
+      <TableRow key={run.id} data-state={selectedRunId === run.id ? "selected" : undefined}>
+        <TableCell>
+          <StatusBadge status={run.status} />
+        </TableCell>
+        <TableCell>{stageLabel(run.stage)}</TableCell>
+        <TableCell>{formatDate(run.startedAt)}</TableCell>
+        <TableCell>{formatDate(run.finishedAt)}</TableCell>
+        <TableCell>
+          <span className="error-cell">{run.errorMessage || ""}</span>
+        </TableCell>
+        <TableCell className="text-right">
+          <Button
+            type="button"
+            size="sm"
+            variant={selectedRunId === run.id ? "default" : "outline"}
+            onClick={() => {
+              setLogDialogRunId(run.id);
+              setAutoScroll(true);
+              setCopyStatus("idle");
+              onLoadLogs(run.id);
+            }}
+          >
+            查看日志
+          </Button>
+        </TableCell>
+      </TableRow>
+    );
   }
 
   return (
@@ -140,37 +235,83 @@ export function RunsPanel({
         <span className="text-sm text-muted-foreground ml-auto">{filteredRuns.length} 条记录</span>
       </div>
 
-      <DataTable
-        emptyText={runs.length ? "无符合条件的记录" : "暂无运行记录"}
-        title="运行记录"
-        description="查看执行结果，按需打开某次运行的阶段日志。"
-        headers={["任务", "状态", "阶段", "开始时间", "结束时间", "错误", "日志"]}
-        rows={filteredRuns.map((run) => ({
-          key: run.id,
-          rowState: selectedRunId === run.id ? "selected" : undefined,
-          cells: [
-            <span className="font-medium">{jobNames[run.backupJobId] || run.backupJobId}</span>,
-            <StatusBadge status={run.status} />,
-            stageLabel(run.stage),
-            formatDate(run.startedAt),
-            formatDate(run.finishedAt),
-            <span className="error-cell">{run.errorMessage || ""}</span>,
-            <Button
-              type="button"
-              size="sm"
-              variant={selectedRunId === run.id ? "default" : "outline"}
-              onClick={() => {
-                setLogDialogRunId(run.id);
-                setAutoScroll(true);
-                setCopyStatus("idle");
-                onLoadLogs(run.id);
-              }}
-            >
-              查看日志
-            </Button>,
-          ],
-        }))}
-      />
+      <Card className="data-table-card run-group-card">
+        <CardHeader className="data-table-header">
+          <div className="min-w-0">
+            <CardTitle>运行记录</CardTitle>
+            <CardDescription>按备份任务分组查看执行结果，按需打开某次运行的阶段日志。</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="data-table-content">
+          {runGroups.length ? (
+            <Table className="run-group-table">
+              <TableHeader className="sticky top-0 z-10 bg-muted/45">
+                <TableRow>
+                  <TableHead>任务</TableHead>
+                  <TableHead>运行记录</TableHead>
+                  <TableHead>状态概览</TableHead>
+                  <TableHead>最近开始</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {runGroups.map((group) => {
+                  const expanded = isGroupExpanded(group);
+
+                  return (
+                    <Fragment key={group.key}>
+                      <TableRow className="run-job-row" key={`${group.key}-job`}>
+                        <TableCell className="max-w-[260px] overflow-hidden text-ellipsis whitespace-nowrap">
+                          <div className="run-job-cell">
+                            <Button type="button" size="sm" variant="outline" onClick={() => toggleGroup(group)}>
+                              {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                              {expanded ? "收起" : "展开"}
+                            </Button>
+                            <span className="font-medium">{groupDisplayName(group)}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{group.runs.length} 条记录</TableCell>
+                        <TableCell>
+                          <Badge variant={group.runs.some((run) => run.status === "Failed") ? "destructive" : "secondary"}>
+                            {statusSummary(group)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{formatDate(latestStartedAt(group))}</TableCell>
+                        <TableCell className="text-right">
+                          <Button type="button" size="sm" variant="outline" onClick={() => toggleGroup(group)}>
+                            {expanded ? "收起明细" : "展开明细"}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                      {expanded && (
+                        <TableRow aria-label={`${groupDisplayName(group)}运行明细`} className="run-child-row" key={`${group.key}-runs`}>
+                          <TableCell colSpan={5}>
+                            <Table className="run-child-table">
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>状态</TableHead>
+                                  <TableHead>阶段</TableHead>
+                                  <TableHead>开始时间</TableHead>
+                                  <TableHead>结束时间</TableHead>
+                                  <TableHead>错误</TableHead>
+                                  <TableHead className="text-right">日志</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>{group.runs.map(renderRunRow)}</TableBody>
+                            </Table>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          ) : (
+            <EmptyState text={runs.length ? "无符合条件的记录" : "暂无运行记录"} />
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog open={Boolean(logDialogRunId)} onOpenChange={(open) => !open && setLogDialogRunId(null)}>
         <DialogContent className="run-log-dialog" aria-describedby="run-log-description">

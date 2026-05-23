@@ -19,6 +19,14 @@ const job: BackupJob = {
   updatedAt: "2026-05-21T00:00:00Z",
 };
 
+const reportingJob: BackupJob = {
+  ...job,
+  id: "job-2",
+  name: "报表库备份",
+  databaseConnectionId: "source-2",
+  databaseName: "reporting",
+};
+
 const run: BackupRun = {
   id: "run-1",
   backupJobId: "job-1",
@@ -34,6 +42,26 @@ const run: BackupRun = {
   remotePath: "/backup/app.sql.gz",
   errorMessage: null,
   createdAt: "2026-05-22T00:33:30Z",
+};
+
+const failedRun: BackupRun = {
+  ...run,
+  id: "run-2",
+  status: "Failed",
+  stage: "upload",
+  startedAt: "2026-05-21T00:33:30Z",
+  finishedAt: "2026-05-21T00:33:34Z",
+  errorMessage: "上传失败",
+};
+
+const reportingRun: BackupRun = {
+  ...run,
+  id: "run-3",
+  backupJobId: "job-2",
+  status: "Running",
+  stage: "compress",
+  startedAt: "2026-05-23T00:33:30Z",
+  finishedAt: null,
 };
 
 const log: BackupRunLog = {
@@ -64,6 +92,23 @@ function RunsPanelHarness({ onLoadLogs }: { onLoadLogs: (runId: string) => void 
 }
 
 describe("RunsPanel", () => {
+  it("groups run records by backup job", () => {
+    render(
+      <RunsPanel
+        jobs={[job, reportingJob]}
+        logs={[]}
+        runs={[reportingRun, run, failedRun]}
+        selectedRunId={null}
+        onLoadLogs={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("row", { name: /生产库备份.*2 条记录.*1 成功.*1 失败/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /报表库备份.*1 条记录.*1 执行中/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /Success.*完成/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /Failed.*上传.*上传失败/ })).toBeInTheDocument();
+  });
+
   it("opens run logs in a dialog from the selected run", () => {
     const onLoadLogs = vi.fn();
     render(<RunsPanelHarness onLoadLogs={onLoadLogs} />);
