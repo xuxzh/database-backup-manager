@@ -1,5 +1,6 @@
 /target/
 /.worktrees/
+/.superpowers/
 /.pnpm-store/
 /data/*
 /backups/
