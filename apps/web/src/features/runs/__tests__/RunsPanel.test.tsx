@@ -32,6 +32,7 @@ const reportingJob: BackupJob = {
 const run: BackupRun = {
   id: "run-1",
   backupJobId: "job-1",
+  runType: "scheduled",
   status: "Success",
   stage: "done",
   startedAt: "2026-05-22T00:33:30Z",
@@ -66,6 +67,15 @@ const reportingRun: BackupRun = {
   stage: "compress",
   startedAt: "2026-05-23T00:33:30Z",
   finishedAt: null,
+};
+
+const manualRun: BackupRun = {
+  ...run,
+  id: "run-4",
+  backupJobId: "",
+  runType: "manualUpload",
+  stage: "verify_remote",
+  archiveFileName: "offline.sql.gz",
 };
 
 const log: BackupRunLog = {
@@ -123,6 +133,23 @@ describe("RunsPanel", () => {
     expect(screen.getByRole("row", { name: /报表库备份.*1 条记录.*1 执行中/ })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /Success.*完成/ })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /Failed.*上传.*上传失败/ })).toBeInTheDocument();
+  });
+
+  it("groups manual upload runs separately from scheduled jobs", () => {
+    render(
+      <RunsPanel
+        jobs={[job]}
+        logs={[]}
+        runs={[manualRun, run]}
+        selectedRunId={null}
+        onDeleteFile={vi.fn()}
+        onDownloadFile={vi.fn()}
+        onLoadLogs={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("row", { name: /手动上传.*1 条记录.*1 成功/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /自动备份.*执行完成/ })).toBeInTheDocument();
   });
 
   it("shows remote file actions for successful backup runs", () => {

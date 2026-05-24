@@ -82,6 +82,7 @@ export function JobsPanel({
   const [open, setOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<BackupJob | null>(null);
   const [schedule, setSchedule] = useState(cronTemplates[0].value);
+  const [selectedSourceId, setSelectedSourceId] = useState("");
   const [databaseName, setDatabaseName] = useState("");
   const [databaseOptions, setDatabaseOptions] = useState<string[]>([]);
   const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
@@ -147,6 +148,7 @@ export function JobsPanel({
     if (!nextOpen) {
       setEditingJob(null);
       setSchedule(cronTemplates[0].value);
+      setSelectedSourceId("");
       setDatabaseName("");
       setDatabaseOptions([]);
       setIsLoadingDatabases(false);
@@ -159,6 +161,7 @@ export function JobsPanel({
   function openCreateDialog() {
     setEditingJob(null);
     setSchedule(cronTemplates[0].value);
+    setSelectedSourceId("");
     setDatabaseName("");
     setDatabaseOptions([]);
     setIsLoadingDatabases(false);
@@ -171,6 +174,7 @@ export function JobsPanel({
   function openEditDialog(job: BackupJob) {
     setEditingJob(job);
     setSchedule(job.schedule);
+    setSelectedSourceId(job.databaseConnectionId);
     setDatabaseName(job.databaseName);
     setDatabaseOptions([job.databaseName]);
     setIsLoadingDatabases(false);
@@ -182,8 +186,15 @@ export function JobsPanel({
   }
 
   function handleSourceChange(sourceId: string) {
-    const defaultDatabase = sources.find((source) => source.id === sourceId)?.databaseName;
+    setSelectedSourceId(sourceId);
+    const source = sources.find((source) => source.id === sourceId);
+    const defaultDatabase = source?.databaseName;
     setDatabaseName(defaultDatabase || "");
+    if (source?.backupMode === "manual") {
+      setDatabaseOptions([]);
+      setDatabaseLoadMessage("手动备份数据源需手动输入数据库名。");
+      return;
+    }
     loadDatabases(sourceId, defaultDatabase || "");
   }
 
@@ -230,6 +241,7 @@ export function JobsPanel({
   }
 
   function sourceEndpoint(group: JobSourceGroup) {
+    if (group.source?.backupMode === "manual") return "手动上传";
     return group.source ? `${group.source.host}:${group.source.port}` : "任务引用的数据源不存在";
   }
 
@@ -483,7 +495,7 @@ export function JobsPanel({
               <Field label="数据源">
                 <Select
                   name="databaseConnectionId"
-                  defaultValue={editingValue?.databaseConnectionId}
+                  value={selectedSourceId}
                   onValueChange={handleSourceChange}
                   required
                 >
@@ -500,7 +512,7 @@ export function JobsPanel({
                 </Select>
               </Field>
               <Field label="备份数据库">
-                {databaseOptions.length > 0 ? (
+                {databaseOptions.length > 0 && sources.find((source) => source.id === selectedSourceId)?.backupMode !== "manual" ? (
                   <Select
                     key={databaseOptions.join("\0")}
                     name="databaseName"

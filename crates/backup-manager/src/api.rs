@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{FromRef, Path, State},
+    extract::{DefaultBodyLimit, FromRef, Multipart, Path, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
@@ -22,6 +22,7 @@ use crate::{
     crypto::Crypto,
     domain::*,
     executor::BackupExecutor,
+    manual_upload::ManualUploadExecutor,
     repository::Repository,
     scheduler::BackupScheduler,
 };
@@ -35,6 +36,7 @@ pub struct AppState {
     pub crypto: Arc<Crypto>,
     pub sessions: Arc<SessionStore>,
     pub executor: Arc<BackupExecutor>,
+    pub manual_upload_executor: Arc<ManualUploadExecutor>,
     pub scheduler: Arc<BackupScheduler>,
 }
 
@@ -62,6 +64,10 @@ pub fn router(state: AppState) -> Router {
         .route("/jobs", get(list_jobs).post(create_job))
         .route("/jobs/{id}", put(update_job).delete(delete_job))
         .route("/jobs/{id}/run", post(run_job))
+        .route(
+            "/manual-uploads",
+            post(create_manual_upload).layer(DefaultBodyLimit::disable()),
+        )
         .route("/runs", get(list_runs))
         .route("/runs/{id}/logs", get(list_run_logs))
         .route(
@@ -254,6 +260,7 @@ async fn test_source(
         encrypted_password: String::new(),
         password: Some(input.password),
         database_name: input.database_name,
+        backup_mode: input.backup_mode,
         execution_mode: input.execution_mode,
         remote_host: input.remote_host,
         remote_port: input.remote_port,
@@ -464,6 +471,94 @@ async fn run_job(
     Ok(Json(state.executor.enqueue(id).await?))
 }
 
+async fn create_manual_upload(
+    _auth: Authenticated,
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Json<BackupRun>, ApiError> {
+    let mut backup_target_id = String::new();
+    let mut source_id = String::new();
+    let mut database_name = String::new();
+    let mut note: Option<String> = None;
+    let mut file_name: Option<String> = None;
+    let mut file_bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| ApiError::bad_request(&format!("读取上传表单失败: {error}")))?
+    {
+        let name = field.name().unwrap_or_default().to_string();
+        if name == "file" {
+            file_name = field.file_name().map(|value| value.to_string());
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|error| ApiError::bad_request(&format!("读取上传文件失败: {error}")))?;
+            file_bytes = Some(bytes.to_vec());
+            continue;
+        }
+
+        let value = field
+            .text()
+            .await
+            .map_err(|error| ApiError::bad_request(&format!("读取上传字段失败: {error}")))?;
+        match name.as_str() {
+            "backupTargetId" => backup_target_id = value.trim().to_string(),
+            "sourceId" => source_id = value.trim().to_string(),
+            "databaseName" => database_name = value.trim().to_string(),
+            "note" => {
+                note = if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(value.trim().to_string())
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if backup_target_id.is_empty() {
+        return Err(ApiError::bad_request("请选择备份目标"));
+    }
+    if source_id.is_empty() {
+        return Err(ApiError::bad_request("请选择数据源"));
+    }
+    if database_name.is_empty() {
+        return Err(ApiError::bad_request("请输入数据库名"));
+    }
+
+    state
+        .repository
+        .get_backup_target(&backup_target_id)
+        .await
+        .map_err(|_| ApiError::not_found("备份目标不存在"))?;
+    let source = state
+        .repository
+        .get_database_connection(&source_id)
+        .await
+        .map_err(|_| ApiError::not_found("数据源不存在"))?;
+
+    let run = state
+        .manual_upload_executor
+        .enqueue(
+            CreateManualBackupUpload {
+                database_connection_id: source.id,
+                backup_target_id,
+                source_label: source.name,
+                database_type: source.db_type,
+                database_name,
+                original_file_name: file_name
+                    .ok_or_else(|| ApiError::bad_request("请选择上传文件"))?,
+                note,
+            },
+            file_bytes.ok_or_else(|| ApiError::bad_request("请选择上传文件"))?,
+        )
+        .await?;
+
+    Ok(Json(run))
+}
+
 async fn list_runs(
     _auth: Authenticated,
     State(state): State<AppState>,
@@ -565,14 +660,24 @@ async fn run_file_context(
         .clone()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| ApiError::conflict("运行记录没有归档文件名"))?;
-    let job = state
-        .repository
-        .get_backup_job(&run.backup_job_id)
-        .await
-        .map_err(|_| ApiError::not_found("备份任务不存在"))?;
+    let target_id = if run.run_type == "manualUpload" {
+        state
+            .repository
+            .get_manual_upload_by_run_id(&run.id)
+            .await
+            .map_err(|_| ApiError::not_found("手动上传记录不存在"))?
+            .backup_target_id
+    } else {
+        let job = state
+            .repository
+            .get_backup_job(&run.backup_job_id)
+            .await
+            .map_err(|_| ApiError::not_found("备份任务不存在"))?;
+        job.backup_target_id
+    };
     let target = state
         .repository
-        .get_backup_target(&job.backup_target_id)
+        .get_backup_target(&target_id)
         .await
         .map_err(|_| ApiError::not_found("备份目标不存在"))?;
     Ok((run, target, remote_path, archive_file_name))
@@ -606,6 +711,14 @@ impl ApiError {
         Self {
             status: StatusCode::CONFLICT,
             code: "CONFLICT",
+            message: message.to_string(),
+        }
+    }
+
+    fn bad_request(message: &str) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "BAD_REQUEST",
             message: message.to_string(),
         }
     }
@@ -653,6 +766,7 @@ mod tests {
         crypto::Crypto,
         domain::{BackupJob, ConfigSchema, UpsertDatabaseConnection},
         executor::BackupExecutor,
+        manual_upload::ManualUploadExecutor,
     };
 
     struct SavedSourceListAdapter;
@@ -715,6 +829,8 @@ mod tests {
             admin_password: "secret-password".into(),
             app_secret: "secret-key".into(),
             default_target_base_dir: "~/backups".into(),
+            max_manual_upload_bytes: 1024 * 1024,
+            manual_upload_allowed_extensions: vec!["gz".into(), "zip".into()],
         };
 
         let public_config = PublicAppConfig::from(&config);
@@ -751,6 +867,7 @@ mod tests {
                     username: "backup".into(),
                     password: String::new(),
                     database_name: Some("app".into()),
+                    backup_mode: "automatic".into(),
                     execution_mode: "local".into(),
                     remote_host: None,
                     remote_port: None,
@@ -778,6 +895,13 @@ mod tests {
             crypto.clone(),
             std::env::temp_dir(),
         ));
+        let manual_upload_executor = Arc::new(ManualUploadExecutor::new(
+            config.clone(),
+            repository.clone(),
+            target_registry.clone(),
+            crypto.clone(),
+            std::env::temp_dir(),
+        ));
         let scheduler = Arc::new(
             BackupScheduler::new(repository.clone(), executor.clone())
                 .await
@@ -791,6 +915,7 @@ mod tests {
             crypto,
             sessions: Arc::new(SessionStore::default()),
             executor,
+            manual_upload_executor,
             scheduler,
         };
 

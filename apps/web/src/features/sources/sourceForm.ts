@@ -12,6 +12,7 @@ export interface SourceFormValue {
   username: string;
   password: string;
   databaseName?: string;
+  backupMode: string;
   executionMode: string;
   remoteHost?: string;
   remotePort?: number;
@@ -31,6 +32,7 @@ export function parseSourceForm(form: FormData): SourceFormValue {
     username: stringField(form, "username"),
     password: stringField(form, "password"),
     databaseName: optionalStringField(form, "databaseName"),
+    backupMode: stringField(form, "backupMode") || "automatic",
     executionMode: stringField(form, "executionMode") || "local",
     remoteHost: optionalStringField(form, "remoteHost"),
     remotePort: form.get("remotePort")?.toString().trim()
@@ -54,6 +56,7 @@ export function toUpsertDatabaseConnection(form: FormData): UpsertDatabaseConnec
     username: value.username,
     password: value.password,
     databaseName: value.databaseName,
+    backupMode: value.backupMode as "automatic" | "manual",
     executionMode: value.executionMode,
     remoteHost: value.remoteHost,
     remotePort: value.remotePort,
@@ -74,6 +77,7 @@ export function sourceToFormValue(source: DatabaseConnection): Partial<SourceFor
     port: source.port,
     username: source.username,
     databaseName: source.databaseName ?? undefined,
+    backupMode: source.backupMode,
     executionMode: source.executionMode,
     remoteHost: source.remoteHost ?? undefined,
     remotePort: source.remotePort ?? undefined,

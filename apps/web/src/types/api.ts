@@ -39,6 +39,7 @@ export type DatabaseConnection = {
   username: string;
   password: string | null;
   databaseName: string | null;
+  backupMode: "automatic" | "manual";
   executionMode: string;
   remoteHost: string | null;
   remotePort: number | null;
@@ -60,6 +61,7 @@ export type UpsertDatabaseConnection = {
   username: string;
   password: string;
   databaseName?: string;
+  backupMode: "automatic" | "manual";
   executionMode: string;
   remoteHost?: string;
   remotePort?: number;
@@ -135,10 +137,12 @@ export type UpsertBackupJob = {
 };
 
 export type RunStatus = "Pending" | "Running" | "Success" | "Failed";
+export type RunType = "scheduled" | "manualUpload";
 
 export type BackupRun = {
   id: string;
   backupJobId: string;
+  runType: RunType;
   status: RunStatus;
   stage: string;
   startedAt: string;

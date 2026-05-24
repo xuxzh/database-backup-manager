@@ -8,9 +8,11 @@ export function stageLabel(stage: string) {
   const labels: Record<string, string> = {
     pending: "等待调度",
     prepare: "准备上下文",
+    receive_file: "接收文件",
     dump: "导出数据库",
     compress: "压缩备份文件",
     checksum: "计算校验值",
+    manifest: "生成清单",
     upload: "上传远端",
     verify_remote: "验证远端文件",
     local_cleanup: "清理本地文件",

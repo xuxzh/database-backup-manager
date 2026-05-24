@@ -5,6 +5,8 @@ mod config;
 mod crypto;
 mod domain;
 mod executor;
+mod manual_upload;
+mod path_utils;
 mod repository;
 mod scheduler;
 
@@ -27,6 +29,7 @@ use crate::{
     config::AppConfig,
     crypto::Crypto,
     executor::BackupExecutor,
+    manual_upload::ManualUploadExecutor,
     repository::Repository,
     scheduler::BackupScheduler,
 };
@@ -70,6 +73,13 @@ async fn main() -> anyhow::Result<()> {
         crypto.clone(),
         config.backups_dir.clone(),
     ));
+    let manual_upload_executor = Arc::new(ManualUploadExecutor::new(
+        Arc::new(config.clone()),
+        repository.clone(),
+        target_registry.clone(),
+        crypto.clone(),
+        config.backups_dir.clone(),
+    ));
     let scheduler = Arc::new(BackupScheduler::new(repository.clone(), executor.clone()).await?);
     scheduler.reload().await?;
 
@@ -81,6 +91,7 @@ async fn main() -> anyhow::Result<()> {
         crypto,
         sessions: Arc::new(SessionStore::default()),
         executor,
+        manual_upload_executor,
         scheduler,
     };
 

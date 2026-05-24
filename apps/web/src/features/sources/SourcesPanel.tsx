@@ -49,6 +49,7 @@ export function SourcesPanel({
   const [editingSource, setEditingSource] = useState<DatabaseConnection | null>(null);
   const [dbType, setDbType] = useState("mysql");
   const [port, setPort] = useState(defaultPorts.mysql);
+  const [backupMode, setBackupMode] = useState("automatic");
   const [executionMode, setExecutionMode] = useState("local");
   const [remoteAuthMethod, setRemoteAuthMethod] = useState("key");
   const [remotePort, setRemotePort] = useState("22");
@@ -67,6 +68,7 @@ export function SourcesPanel({
       port: form.get("port")?.toString().trim() || "",
       username: form.get("username")?.toString().trim() || "",
       password: form.get("password")?.toString() || "",
+      backupMode: form.get("backupMode")?.toString().trim() || "automatic",
       executionMode: form.get("executionMode")?.toString().trim() || "local",
       remoteHost: form.get("remoteHost")?.toString().trim() || "",
       remotePort: form.get("remotePort")?.toString().trim() || "",
@@ -89,16 +91,17 @@ export function SourcesPanel({
 
   function validateForm(form: FormData, requireSecrets = false): boolean {
     const errors: Record<string, string> = {};
+    const isManualBackup = form.get("backupMode") === "manual";
     const port = Number(form.get("port"));
     const portResult = validatePort(port);
     if (!portResult.valid) errors.port = portResult.message!;
     if (!form.get("name")?.toString().trim()) errors.name = "名称不能为空";
     if (!form.get("host")?.toString().trim()) errors.host = "主机不能为空";
-    if (!form.get("username")?.toString().trim()) errors.username = "用户名不能为空";
-    if ((requireSecrets || !editingSource) && !form.get("password")?.toString().trim()) {
+    if (!isManualBackup && !form.get("username")?.toString().trim()) errors.username = "用户名不能为空";
+    if (!isManualBackup && (requireSecrets || !editingSource) && !form.get("password")?.toString().trim()) {
       errors.password = "密码不能为空";
     }
-    if (form.get("executionMode") === "remoteSsh") {
+    if (!isManualBackup && form.get("executionMode") === "remoteSsh") {
       const remotePort = Number(form.get("remotePort"));
       const remotePortResult = validatePort(remotePort);
       if (!remotePortResult.valid) errors.remotePort = remotePortResult.message!;
@@ -132,6 +135,7 @@ export function SourcesPanel({
       clearSuccessfulTest();
       setDbType("mysql");
       setPort(defaultPorts.mysql);
+      setBackupMode("automatic");
       setExecutionMode("local");
       setRemoteAuthMethod("key");
       setRemotePort("22");
@@ -144,6 +148,7 @@ export function SourcesPanel({
     setEditingSource(null);
     setDbType("mysql");
     setPort(defaultPorts.mysql);
+    setBackupMode("automatic");
     setExecutionMode("local");
     setRemoteAuthMethod("key");
     setRemotePort("22");
@@ -156,6 +161,7 @@ export function SourcesPanel({
     setEditingSource(source);
     setDbType(source.dbType);
     setPort(String(source.port));
+    setBackupMode(source.backupMode);
     setExecutionMode(source.executionMode);
     setRemoteAuthMethod(source.remoteAuthMethod || "key");
     setRemotePort(String(source.remotePort || 22));
@@ -173,7 +179,7 @@ export function SourcesPanel({
     const form = new FormData(event.currentTarget);
     setGlobalError("");
     if (!validateForm(form)) return false;
-    if (sourceFormSignature(form) !== successfulTestSignature) {
+    if (form.get("backupMode") !== "manual" && sourceFormSignature(form) !== successfulTestSignature) {
       setGlobalError("请先测试连接，确认连接成功后再保存。");
       return false;
     }
@@ -226,8 +232,8 @@ export function SourcesPanel({
             <Badge variant="secondary">{item.dbType}</Badge>,
             item.host,
             String(item.port),
-            item.username,
-            item.executionMode === "remoteSsh" ? "数据库服务器" : "管理台本机",
+            item.backupMode === "manual" ? "手动备份" : item.username,
+            item.backupMode === "manual" ? "手动上传" : item.executionMode === "remoteSsh" ? "数据库服务器" : "管理台本机",
             item.databaseName || "未设置",
             <div className="action-cell">
               <IconButton icon="edit" label="编辑数据源" disabled={isSubmitting} onClick={() => openEditDialog(item)} />
@@ -251,13 +257,34 @@ export function SourcesPanel({
             onSubmit={handleSubmit}
             onChange={handleFormChange}
           >
+            <Field label="备份方式">
+              <Select
+                name="backupMode"
+                value={backupMode}
+                onValueChange={(nextBackupMode) => {
+                  setBackupMode(nextBackupMode);
+                  clearSuccessfulTest();
+                  if (nextBackupMode === "manual") {
+                    setExecutionMode("local");
+                  }
+                }}
+              >
+                <SelectTrigger aria-label="备份方式">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="automatic">自动备份</SelectItem>
+                  <SelectItem value="manual">手动备份</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
             <Field label="名称">
               <Input name="name" placeholder="生产库" defaultValue={editingValue?.name || ""} required />
               {fieldErrors.name && <p className="field-error">{fieldErrors.name}</p>}
             </Field>
             <Field label="类型">
               <Select name="dbType" value={dbType} onValueChange={handleDbTypeChange}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="数据源类型">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -287,7 +314,7 @@ export function SourcesPanel({
               {fieldErrors.port && <p className="field-error">{fieldErrors.port}</p>}
             </Field>
             <Field label="用户名">
-              <Input name="username" placeholder="backup" defaultValue={editingValue?.username || ""} required />
+              <Input name="username" placeholder="backup" defaultValue={editingValue?.username || ""} required={backupMode !== "manual"} disabled={backupMode === "manual"} />
               {fieldErrors.username && <p className="field-error">{fieldErrors.username}</p>}
             </Field>
             <Field label="密码">
@@ -296,38 +323,44 @@ export function SourcesPanel({
                 type="password"
                 placeholder={isEditing ? "留空表示不修改" : "数据库密码"}
                 autoComplete="new-password"
-                required={!isEditing}
+                required={!isEditing && backupMode !== "manual"}
+                disabled={backupMode === "manual"}
               />
               {fieldErrors.password && <p className="field-error">{fieldErrors.password}</p>}
             </Field>
             <Field label="默认数据库">
-              <Select
-                key={databaseOptions.join("\0")}
-                name="databaseName"
-                value={selectedDatabaseName}
-                onValueChange={setSelectedDatabaseName}
-                disabled={databaseOptions.length === 0}
-              >
-                <SelectTrigger aria-label="默认数据库">
-                  <SelectValue placeholder="测试连接后可选择" />
-                </SelectTrigger>
-                <SelectContent>
-                  {databaseOptions.map((databaseName) => (
-                    <SelectItem key={databaseName} value={databaseName}>{databaseName}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {backupMode === "manual" ? (
+                <Input name="databaseName" placeholder="业务库名" defaultValue={editingValue?.databaseName || ""} />
+              ) : (
+                <Select
+                  key={databaseOptions.join("\0")}
+                  name="databaseName"
+                  value={selectedDatabaseName}
+                  onValueChange={setSelectedDatabaseName}
+                  disabled={databaseOptions.length === 0}
+                >
+                  <SelectTrigger aria-label="默认数据库">
+                    <SelectValue placeholder="测试连接后可选择" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {databaseOptions.map((databaseName) => (
+                      <SelectItem key={databaseName} value={databaseName}>{databaseName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </Field>
             <Field label="备份执行位置">
               <Select
                 name="executionMode"
                 value={executionMode}
+                disabled={backupMode === "manual"}
                 onValueChange={(nextExecutionMode) => {
                   setExecutionMode(nextExecutionMode);
                   clearSuccessfulTest();
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="备份执行位置">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -336,7 +369,7 @@ export function SourcesPanel({
                 </SelectContent>
               </Select>
             </Field>
-            {executionMode === "remoteSsh" && (
+            {backupMode !== "manual" && executionMode === "remoteSsh" && (
               <>
                 <Field label="SSH 主机">
                   <Input name="remoteHost" placeholder="数据库服务器地址" defaultValue={editingValue?.remoteHost || ""} required />
@@ -413,10 +446,12 @@ export function SourcesPanel({
                 取消
               </Button>
             </DialogClose>
+            {backupMode !== "manual" && (
             <Button type="button" variant="secondary" disabled={isSubmitting || isTesting} onClick={handleTestConnection}>
               {isTesting ? "测试中..." : "测试连接"}
             </Button>
-            <Button type="submit" form="source-form" disabled={isSubmitting || successfulTestSignature === null}>
+            )}
+            <Button type="submit" form="source-form" disabled={isSubmitting || (backupMode !== "manual" && successfulTestSignature === null)}>
               保存
             </Button>
           </DialogFooter>

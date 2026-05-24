@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SourcesPanel } from "../SourcesPanel";
 import type { DatabaseConnection } from "@/types/api";
@@ -21,6 +21,7 @@ const savedSource: DatabaseConnection = {
   username: "backup",
   password: null,
   databaseName: "app",
+  backupMode: "automatic",
   executionMode: "local",
   remoteHost: null,
   remotePort: null,
@@ -163,11 +164,55 @@ describe("SourcesPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "新建数据源" }));
 
-    const typeSelect = screen.getAllByRole("combobox")[0];
+    const typeSelect = screen.getByRole("combobox", { name: "数据源类型" });
     fireEvent.click(typeSelect);
     const sqlServerOptions = await screen.findAllByText("SQL Server");
     fireEvent.click(sqlServerOptions[sqlServerOptions.length - 1]);
 
     expect(screen.getByDisplayValue("1433")).toBeInTheDocument();
+  });
+
+  it("allows manual backup sources to save without credentials or connection testing", async () => {
+    const onTest = vi.fn();
+    const onSubmit = vi.fn().mockResolvedValue(true);
+
+    render(
+      <SourcesPanel
+        isSubmitting={false}
+        items={[]}
+        onDelete={vi.fn()}
+        onTest={onTest}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "新建数据源" }));
+    const form = document.querySelector<HTMLElement>("#source-form");
+    expect(form).not.toBeNull();
+    expect(within(form!).getAllByRole("combobox")[0]).toHaveAccessibleName("备份方式");
+
+    fireEvent.change(screen.getByPlaceholderText("生产库"), { target: { value: "离线库" } });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "备份方式" }));
+    const manualOptions = await screen.findAllByText("手动备份");
+    fireEvent.click(manualOptions[manualOptions.length - 1]);
+
+    const hostInput = screen.getByPlaceholderText("127.0.0.1");
+    const portInput = screen.getByDisplayValue("3306");
+    expect(hostInput).toBeEnabled();
+    expect(portInput).toBeEnabled();
+
+    fireEvent.change(screen.getByPlaceholderText("业务库名"), { target: { value: "offline_app" } });
+
+    expect(screen.queryByRole("button", { name: "测试连接" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.change(hostInput, { target: { value: "offline-host" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onTest).not.toHaveBeenCalled();
   });
 });

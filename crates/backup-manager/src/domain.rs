@@ -33,6 +33,7 @@ pub struct DatabaseConnection {
     pub encrypted_password: String,
     pub password: Option<String>,
     pub database_name: Option<String>,
+    pub backup_mode: String,
     pub execution_mode: String,
     pub remote_host: Option<String>,
     pub remote_port: Option<i64>,
@@ -58,6 +59,8 @@ pub struct UpsertDatabaseConnection {
     pub username: String,
     pub password: String,
     pub database_name: Option<String>,
+    #[serde(default = "default_backup_mode")]
+    pub backup_mode: String,
     #[serde(default = "default_execution_mode")]
     pub execution_mode: String,
     pub remote_host: Option<String>,
@@ -82,6 +85,19 @@ impl UpsertDatabaseConnection {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
         self.execution_mode = normalize_execution_mode(&self.execution_mode);
+        self.backup_mode = normalize_backup_mode(&self.backup_mode);
+        if self.backup_mode == "manual" {
+            self.username = String::new();
+            self.password = String::new();
+            self.execution_mode = "local".to_string();
+            self.remote_host = None;
+            self.remote_port = None;
+            self.remote_username = None;
+            self.remote_auth_method = None;
+            self.remote_secret = None;
+            self.remote_tool_path = None;
+            self.remote_working_dir = None;
+        }
         self.remote_host = normalize_optional_string(self.remote_host);
         self.remote_username = normalize_optional_string(self.remote_username);
         self.remote_auth_method = self
@@ -97,6 +113,17 @@ impl UpsertDatabaseConnection {
 
 fn default_execution_mode() -> String {
     "local".to_string()
+}
+
+fn default_backup_mode() -> String {
+    "automatic".to_string()
+}
+
+fn normalize_backup_mode(value: &str) -> String {
+    match value.trim() {
+        "manual" => "manual".to_string(),
+        _ => "automatic".to_string(),
+    }
 }
 
 fn normalize_execution_mode(value: &str) -> String {
@@ -220,6 +247,7 @@ impl std::fmt::Display for RunStatus {
 pub struct BackupRun {
     pub id: String,
     pub backup_job_id: String,
+    pub run_type: String,
     pub status: RunStatus,
     pub stage: String,
     pub started_at: DateTime<Utc>,
@@ -234,6 +262,32 @@ pub struct BackupRun {
     pub file_deleted_at: Option<DateTime<Utc>>,
     pub error_message: Option<String>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualBackupUpload {
+    pub id: String,
+    pub backup_run_id: String,
+    pub database_connection_id: String,
+    pub backup_target_id: String,
+    pub source_label: String,
+    pub database_type: String,
+    pub database_name: String,
+    pub original_file_name: String,
+    pub note: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateManualBackupUpload {
+    pub database_connection_id: String,
+    pub backup_target_id: String,
+    pub source_label: String,
+    pub database_type: String,
+    pub database_name: String,
+    pub original_file_name: String,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

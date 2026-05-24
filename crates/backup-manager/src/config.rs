@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub admin_password: String,
     pub app_secret: String,
     pub default_target_base_dir: String,
+    pub max_manual_upload_bytes: u64,
+    pub manual_upload_allowed_extensions: Vec<String>,
 }
 
 impl AppConfig {
@@ -31,10 +33,24 @@ impl AppConfig {
                 .unwrap_or_else(|_| "dev-secret-change-me".to_string()),
             default_target_base_dir: std::env::var("DEFAULT_TARGET_BASE_DIR")
                 .unwrap_or_else(|_| "~/backups".to_string()),
+            max_manual_upload_bytes: env_u64("MAX_MANUAL_UPLOAD_BYTES", 2 * 1024 * 1024 * 1024),
+            manual_upload_allowed_extensions: std::env::var("MANUAL_UPLOAD_ALLOWED_EXTENSIONS")
+                .unwrap_or_else(|_| "gz,zip,tar.gz,sql.gz,dump,bak,bacpac".to_string())
+                .split(',')
+                .map(|value| value.trim().to_ascii_lowercase())
+                .filter(|value| !value.is_empty())
+                .collect(),
         }
     }
 
     pub fn database_url(&self) -> String {
         format!("sqlite://{}?mode=rwc", self.database_path.display())
     }
+}
+
+fn env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(default)
 }

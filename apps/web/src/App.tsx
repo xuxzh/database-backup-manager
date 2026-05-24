@@ -14,6 +14,7 @@ import { DashboardPanel } from "./features/dashboard/DashboardPanel";
 import { SourcesPanel } from "./features/sources/SourcesPanel";
 import { TargetsPanel } from "./features/targets/TargetsPanel";
 import { JobsPanel } from "./features/jobs/JobsPanel";
+import { ManualUploadsPanel } from "./features/manual-uploads/ManualUploadsPanel";
 import { RunsPanel } from "./features/runs/RunsPanel";
 import { DeleteDialog, type DeleteTarget } from "./shared/components/DeleteDialog";
 import { stringField } from "./shared/utils/form";
@@ -24,9 +25,10 @@ import { toUpsertBackupJob } from "./features/jobs/jobForm";
 import { ApiError, apiRequest } from "./api/client";
 import { login } from "./shared/api/auth";
 import { fallbackPublicConfig, getPublicConfig } from "./shared/api/config";
+import { uploadManualBackup } from "./shared/api/manualUploads";
 import { toast } from "sonner";
 
-type TabKey = "dashboard" | "sources" | "targets" | "jobs" | "runs";
+type TabKey = "dashboard" | "sources" | "targets" | "jobs" | "manualUploads" | "runs";
 type AppSearch = { runId?: string };
 type SubmitResult = Promise<boolean>;
 type TestSourceResult = Promise<TestDatabaseConnectionResult>;
@@ -47,11 +49,12 @@ const emptyData: AppData = {
   runs: [],
 };
 
-const tabPaths: Record<TabKey, "/dashboard" | "/sources" | "/targets" | "/jobs" | "/runs"> = {
+const tabPaths: Record<TabKey, "/dashboard" | "/sources" | "/targets" | "/jobs" | "/manual-uploads" | "/runs"> = {
   dashboard: "/dashboard",
   sources: "/sources",
   targets: "/targets",
   jobs: "/jobs",
+  manualUploads: "/manual-uploads",
   runs: "/runs",
 };
 
@@ -60,6 +63,7 @@ function pathToTab(pathname: string): TabKey {
   if (pathname === "/sources") return "sources";
   if (pathname === "/targets") return "targets";
   if (pathname === "/jobs") return "jobs";
+  if (pathname === "/manual-uploads") return "manualUploads";
   if (pathname === "/runs") return "runs";
   return "dashboard";
 }
@@ -336,6 +340,34 @@ function AppContent() {
     }
   }
 
+  async function handleManualUpload(event: FormEvent<HTMLFormElement>): SubmitResult {
+    event.preventDefault();
+    if (!token) return false;
+    setIsSubmitting(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    try {
+      const run = await uploadManualBackup(token, form);
+      setActiveRunId(run.id);
+      setSelectedRunId(run.id);
+      setRunLogs([]);
+      setData((current) => ({
+        ...current,
+        runs: [run, ...current.runs.filter((item) => item.id !== run.id)],
+      }));
+      event.currentTarget.reset();
+      toast.info("手动上传已提交，正在等待执行结果");
+      await refresh();
+      navigate({ to: "/runs", search: { runId: run.id } });
+      return true;
+    } catch (uploadError) {
+      setError(errorMessage(uploadError));
+      return false;
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   async function deleteItem(target: NonNullable<DeleteTarget>) {
     setIsSubmitting(true);
     setError("");
@@ -467,6 +499,14 @@ function AppContent() {
           onViewRun={viewRun}
         />
       )}
+      {activeTab === "manualUploads" && (
+        <ManualUploadsPanel
+          isSubmitting={isSubmitting}
+          sources={data.sources}
+          targets={data.targets}
+          onSubmit={handleManualUpload}
+        />
+      )}
       {activeTab === "runs" && (
         <RunsPanel
           jobs={data.jobs}
@@ -525,6 +565,11 @@ const jobsRoute = createRoute({
   path: "/jobs",
 });
 
+const manualUploadsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/manual-uploads",
+});
+
 const runsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/runs",
@@ -536,6 +581,7 @@ const routeTree = rootRoute.addChildren([
   sourcesRoute,
   targetsRoute,
   jobsRoute,
+  manualUploadsRoute,
   runsRoute,
 ]);
 

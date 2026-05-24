@@ -68,6 +68,7 @@ export function RunsPanel({
   const [autoScroll, setAutoScroll] = useState(true);
   const [copyStatus, setCopyStatus] = useState<CopyStatus>("idle");
   const [filterJobId, setFilterJobId] = useState<string>("all");
+  const [filterRunType, setFilterRunType] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterSearch, setFilterSearch] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -79,6 +80,7 @@ export function RunsPanel({
 
   const filteredRuns = useMemo(() => {
     return runs.filter((run) => {
+      if (filterRunType !== "all" && run.runType !== filterRunType) return false;
       if (filterJobId !== "all" && run.backupJobId !== filterJobId) return false;
       if (filterStatus !== "all" && run.status !== filterStatus) return false;
       if (filterSearch) {
@@ -89,14 +91,15 @@ export function RunsPanel({
       }
       return true;
     });
-  }, [runs, filterJobId, filterStatus, filterSearch]);
+  }, [runs, filterJobId, filterRunType, filterStatus, filterSearch]);
 
   const runGroups = useMemo<RunJobGroup[]>(() => {
     const runsByJob = new Map<string, BackupRun[]>();
     for (const run of filteredRuns) {
-      const jobRuns = runsByJob.get(run.backupJobId) || [];
+      const groupKey = run.runType === "manualUpload" ? "manualUpload" : run.backupJobId;
+      const jobRuns = runsByJob.get(groupKey) || [];
       jobRuns.push(run);
-      runsByJob.set(run.backupJobId, jobRuns);
+      runsByJob.set(groupKey, jobRuns);
     }
 
     const groups: RunJobGroup[] = jobs
@@ -145,6 +148,7 @@ export function RunsPanel({
   }
 
   function groupDisplayName(group: RunJobGroup) {
+    if (group.key === "manualUpload") return "手动上传";
     return group.job?.name || group.key;
   }
 
@@ -173,7 +177,10 @@ export function RunsPanel({
     return (
       <TableRow key={run.id} data-state={selectedRunId === run.id ? "selected" : undefined}>
         <TableCell>
-          <StatusBadge status={run.status} />
+          <div className="run-status-cell">
+            <StatusBadge status={run.status} />
+            <Badge variant="secondary">{run.runType === "manualUpload" ? "手动上传" : "自动备份"}</Badge>
+          </div>
         </TableCell>
         <TableCell>{stageLabel(run.stage)}</TableCell>
         <TableCell>{formatDate(run.startedAt)}</TableCell>
@@ -216,6 +223,16 @@ export function RunsPanel({
   return (
     <section className="panel">
       <div className="filter-bar">
+        <Select value={filterRunType} onValueChange={setFilterRunType}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="筛选类型" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部类型</SelectItem>
+            <SelectItem value="scheduled">自动备份</SelectItem>
+            <SelectItem value="manualUpload">手动上传</SelectItem>
+          </SelectContent>
+        </Select>
         <Select value={filterJobId} onValueChange={setFilterJobId}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="筛选任务" />
@@ -259,7 +276,7 @@ export function RunsPanel({
         <CardHeader className="data-table-header">
           <div className="min-w-0">
             <CardTitle>运行记录</CardTitle>
-            <CardDescription>按备份任务分组查看执行结果，按需打开某次运行的阶段日志。</CardDescription>
+            <CardDescription>按备份任务或手动上传分组查看执行结果，按需打开某次运行的阶段日志。</CardDescription>
           </div>
         </CardHeader>
         <CardContent className="data-table-content">
@@ -341,7 +358,9 @@ export function RunsPanel({
             <div className="min-w-0">
               <DialogTitle>运行日志</DialogTitle>
               <DialogDescription id="run-log-description">
-                {dialogRun ? `${jobNames[dialogRun.backupJobId] || dialogRun.backupJobId} · ${formatDate(dialogRun.startedAt)}` : "正在加载运行日志"}
+                {dialogRun
+                  ? `${dialogRun.runType === "manualUpload" ? "手动上传" : jobNames[dialogRun.backupJobId] || dialogRun.backupJobId} · ${formatDate(dialogRun.startedAt)}`
+                  : "正在加载运行日志"}
               </DialogDescription>
             </div>
             {dialogLogs.length > 0 && (

@@ -752,6 +752,21 @@ svg {
   justify-content: flex-end;
 }
 
+.run-status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.manual-upload-file {
+  grid-column: span 2;
+}
+
+.manual-upload-note {
+  grid-column: span 2;
+}
+
 .run-log-viewer {
   height: min(560px, calc(100vh - 220px));
 }

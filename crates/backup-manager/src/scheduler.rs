@@ -57,11 +57,11 @@ impl BackupScheduler {
             scheduled_jobs.push(scheduled_job_id);
         }
 
-        if !self.started.swap(true, Ordering::SeqCst) {
-            if let Err(error) = self.scheduler.start().await {
-                self.started.store(false, Ordering::SeqCst);
-                return Err(error.into());
-            }
+        if !self.started.swap(true, Ordering::SeqCst)
+            && let Err(error) = self.scheduler.start().await
+        {
+            self.started.store(false, Ordering::SeqCst);
+            return Err(error.into());
         }
 
         Ok(())
@@ -112,6 +112,7 @@ mod tests {
                     username: "root".into(),
                     password: "secret".into(),
                     database_name: Some("app".into()),
+                    backup_mode: "automatic".into(),
                     execution_mode: "local".into(),
                     remote_host: None,
                     remote_port: None,

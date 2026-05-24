@@ -13,6 +13,7 @@ const source: DatabaseConnection = {
   username: "backup",
   password: null,
   databaseName: "app",
+  backupMode: "automatic",
   executionMode: "local",
   remoteHost: null,
   remotePort: null,
@@ -194,5 +195,47 @@ describe("JobsPanel", () => {
     const input = await screen.findByPlaceholderText("业务库名");
     expect(input).toHaveValue("app");
     expect(screen.getByText("数据库列表获取失败，可手动输入库名。")).toBeInTheDocument();
+  });
+
+  it("uses manual database input for manual backup sources without loading databases", async () => {
+    const manualSource: DatabaseConnection = {
+      ...source,
+      id: "source-manual",
+      name: "离线库",
+      host: "",
+      username: "",
+      databaseName: "offline_app",
+      backupMode: "manual",
+    };
+    const onLoadSourceDatabases = vi.fn();
+
+    render(
+      <TooltipProvider>
+        <JobsPanel
+          activeRun={null}
+          activeRunLogs={[]}
+          isSubmitting={false}
+          jobs={[]}
+          sources={[manualSource]}
+          targets={[target]}
+          onDelete={vi.fn()}
+          onGoToSources={vi.fn()}
+          onGoToTargets={vi.fn()}
+          onLoadSourceDatabases={onLoadSourceDatabases}
+          onRun={vi.fn()}
+          onSubmit={vi.fn()}
+          onViewRun={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "新建备份任务" }));
+    fireEvent.click(screen.getAllByRole("combobox")[0]);
+    const sourceOptions = await screen.findAllByText("离线库");
+    fireEvent.click(sourceOptions[sourceOptions.length - 1]);
+
+    expect(screen.getByPlaceholderText("业务库名")).toHaveValue("offline_app");
+    expect(screen.getByText("手动备份数据源需手动输入数据库名。")).toBeInTheDocument();
+    expect(onLoadSourceDatabases).not.toHaveBeenCalled();
   });
 });

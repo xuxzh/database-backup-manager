@@ -20,6 +20,7 @@ use crate::{
     },
     crypto::Crypto,
     domain::{BackupRun, RunStatus},
+    path_utils::path_slug,
     repository::Repository,
 };
 
@@ -184,7 +185,7 @@ impl BackupExecutor {
 
         self.stage(run, "upload", "上传备份文件到远端目标").await?;
         let remote_dir = format!(
-            "{}/{}/{}/{}",
+            "scheduled/{}/{}/{}/{}",
             path_slug(&source.host),
             path_slug(&source.db_type),
             database_slug,
@@ -239,29 +240,6 @@ fn current_stage_from_error(message: &str) -> &str {
         .split_whitespace()
         .find_map(|part| part.strip_prefix("stage="))
         .unwrap_or("failed")
-}
-
-fn path_slug(value: &str) -> String {
-    let mut output = String::new();
-    let mut pending_separator = false;
-
-    for ch in value.trim().chars() {
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            if pending_separator && !output.is_empty() {
-                output.push('-');
-            }
-            output.push(ch);
-            pending_separator = false;
-        } else {
-            pending_separator = !output.is_empty();
-        }
-    }
-
-    if output.is_empty() {
-        "unnamed".to_string()
-    } else {
-        output
-    }
 }
 
 fn raw_backup_file_name(db_type: &str, database_slug: &str, timestamp: &str) -> String {
@@ -580,19 +558,10 @@ fn truncate(value: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_remote_dump_command, path_slug, raw_backup_file_name};
+    use super::{build_remote_dump_command, raw_backup_file_name};
     use chrono::Utc;
 
     use crate::domain::{BackupJob, DatabaseConnection};
-
-    #[test]
-    fn path_slug_normalizes_path_segments() {
-        assert_eq!(path_slug("192.168.0.135"), "192-168-0-135");
-        assert_eq!(path_slug(" 192.168.0.135 "), "192-168-0-135");
-        assert_eq!(path_slug("135AAC---"), "135AAC");
-        assert_eq!(path_slug("RH_AAC"), "RH_AAC");
-        assert_eq!(path_slug("---...---"), "unnamed");
-    }
 
     #[test]
     fn remote_mysql_command_streams_dump_to_stdout() {
@@ -656,6 +625,7 @@ mod tests {
             encrypted_password: "encrypted".into(),
             password: Some("secret".into()),
             database_name: Some("app".into()),
+            backup_mode: "automatic".into(),
             execution_mode: "remoteSsh".into(),
             remote_host: Some("db-server".into()),
             remote_port: Some(22),

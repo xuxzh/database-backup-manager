@@ -782,6 +782,7 @@ mod tests {
             encrypted_password: "secret".into(),
             password: Some("secret".into()),
             database_name: Some("app".into()),
+            backup_mode: "automatic".into(),
             execution_mode: "local".into(),
             remote_host: None,
             remote_port: None,
