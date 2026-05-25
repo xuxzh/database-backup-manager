@@ -162,9 +162,7 @@ impl BackupTargetAdapter for SshTargetAdapter {
         let mut command = ssh_command(config, identity_file.as_deref())?;
         let output = command
             .arg(&remote)
-            .arg("test")
-            .arg("-w")
-            .arg(&config.base_dir)
+            .arg(remote_writable_directory_test_command(&config.base_dir))
             .output()
             .await
             .map_err(command_error(executable))?;
@@ -468,6 +466,11 @@ fn stderr_text(stderr: &[u8]) -> String {
     }
 }
 
+fn remote_writable_directory_test_command(base_dir: &str) -> String {
+    let path = shell_quote(base_dir);
+    format!("mkdir -p -- {path} && test -w {path}")
+}
+
 fn shell_quote(value: &str) -> String {
     if value
         .chars()
@@ -511,7 +514,9 @@ mod tests {
     use chrono::Utc;
     use serde_json::json;
 
-    use super::{rsync_executable_name, ssh_executable_name};
+    use super::{
+        remote_writable_directory_test_command, rsync_executable_name, ssh_executable_name,
+    };
     use crate::domain::BackupTarget;
 
     #[test]
@@ -530,6 +535,16 @@ mod tests {
 
         target.auth_method = "password".into();
         assert_eq!(rsync_executable_name(&target).unwrap(), "sshpass");
+    }
+
+    #[test]
+    fn remote_writable_directory_test_creates_directory_before_checking_writability() {
+        let command = remote_writable_directory_test_command("/srv/db backups");
+
+        assert_eq!(
+            command,
+            "mkdir -p -- '/srv/db backups' && test -w '/srv/db backups'"
+        );
     }
 
     fn target(auth_method: &str) -> BackupTarget {
