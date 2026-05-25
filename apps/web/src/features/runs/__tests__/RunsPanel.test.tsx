@@ -115,6 +115,10 @@ function RunsPanelHarness({
   );
 }
 
+function expandFirstRunGroup() {
+  fireEvent.click(screen.getAllByRole("button", { name: "展开明细" })[0]);
+}
+
 describe("RunsPanel", () => {
   it("groups run records by backup job", () => {
     render(
@@ -131,6 +135,11 @@ describe("RunsPanel", () => {
 
     expect(screen.getByRole("row", { name: /生产库备份.*2 条记录.*1 成功.*1 失败/ })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /报表库备份.*1 条记录.*1 执行中/ })).toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /Success.*完成/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /Failed.*上传.*上传失败/ })).not.toBeInTheDocument();
+
+    expandFirstRunGroup();
+
     expect(screen.getByRole("row", { name: /Success.*完成/ })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /Failed.*上传.*上传失败/ })).toBeInTheDocument();
   });
@@ -149,7 +158,11 @@ describe("RunsPanel", () => {
     );
 
     expect(screen.getByRole("row", { name: /手动上传.*1 条记录.*1 成功/ })).toBeInTheDocument();
-    expect(screen.getByRole("row", { name: /自动备份.*执行完成/ })).toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /自动备份.*完成/ })).not.toBeInTheDocument();
+
+    expandFirstRunGroup();
+
+    expect(screen.getByRole("row", { name: /自动备份.*完成/ })).toBeInTheDocument();
   });
 
   it("shows remote file actions for successful backup runs", () => {
@@ -157,6 +170,7 @@ describe("RunsPanel", () => {
     const onDownloadFile = vi.fn();
     render(<RunsPanelHarness onDeleteFile={onDeleteFile} onDownloadFile={onDownloadFile} onLoadLogs={vi.fn()} />);
 
+    expandFirstRunGroup();
     fireEvent.click(screen.getByRole("button", { name: "下载备份文件" }));
     fireEvent.click(screen.getByRole("button", { name: "删除备份文件" }));
 
@@ -177,6 +191,7 @@ describe("RunsPanel", () => {
       />,
     );
 
+    expandFirstRunGroup();
     expect(screen.getByText("已删除")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "下载备份文件" })).toBeDisabled();
   });
@@ -187,6 +202,7 @@ describe("RunsPanel", () => {
 
     expect(screen.queryByText(/备份执行完成/)).not.toBeInTheDocument();
 
+    expandFirstRunGroup();
     fireEvent.click(screen.getByRole("button", { name: "查看日志" }));
 
     expect(onLoadLogs).toHaveBeenCalledWith("run-1");
@@ -217,6 +233,7 @@ describe("RunsPanel", () => {
 
     render(<RunsPanelHarness onLoadLogs={onLoadLogs} />);
 
+    expandFirstRunGroup();
     fireEvent.click(screen.getByRole("button", { name: "查看日志" }));
     fireEvent.click(screen.getByRole("button", { name: "复制日志" }));
 
@@ -244,6 +261,7 @@ describe("RunsPanel", () => {
 
     render(<RunsPanelHarness onLoadLogs={onLoadLogs} />);
 
+    expandFirstRunGroup();
     fireEvent.click(screen.getByRole("button", { name: "查看日志" }));
     fireEvent.click(screen.getByRole("button", { name: "复制日志" }));
 

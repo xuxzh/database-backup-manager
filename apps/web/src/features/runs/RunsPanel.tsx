@@ -137,7 +137,7 @@ export function RunsPanel({
   }
 
   function isGroupExpanded(group: RunJobGroup) {
-    return expandedGroups[group.key] ?? true;
+    return expandedGroups[group.key] ?? false;
   }
 
   function toggleGroup(group: RunJobGroup) {

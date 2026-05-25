@@ -97,10 +97,15 @@ describe("JobsPanel", () => {
       </TooltipProvider>,
     );
 
+    expect(screen.getByRole("row", { name: /展开 生产库 mysql 127\.0\.0\.1:3306 1 个任务 1 个启用/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /展开 报表库 postgres 10\.0\.0\.20:5432 1 个任务 0 个启用/ })).toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /分析库备份 analytics 备份服务器 0 0 2 \* \* \* 是/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: /报表库备份 reports 备份服务器 0 0 2 \* \* \* 否/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "展开" })[0]);
+
     expect(screen.getByRole("row", { name: /收起 生产库 mysql 127\.0\.0\.1:3306 1 个任务 1 个启用/ })).toBeInTheDocument();
-    expect(screen.getByRole("row", { name: /收起 报表库 postgres 10\.0\.0\.20:5432 1 个任务 0 个启用/ })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /分析库备份 analytics 备份服务器 0 0 2 \* \* \* 是/ })).toBeInTheDocument();
-    expect(screen.getByRole("row", { name: /报表库备份 reports 备份服务器 0 0 2 \* \* \* 否/ })).toBeInTheDocument();
   });
 
   it("loads backup databases from the selected source when creating a job", async () => {
@@ -161,6 +166,7 @@ describe("JobsPanel", () => {
       </TooltipProvider>,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "展开" }));
     fireEvent.click(screen.getByRole("button", { name: "编辑备份任务" }));
 
     expect(screen.getByRole("combobox", { name: "备份数据库" })).toHaveTextContent("analytics");

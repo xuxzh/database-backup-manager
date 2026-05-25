@@ -228,7 +228,7 @@ export function JobsPanel({
   const isEditing = Boolean(editingJob);
 
   function isGroupExpanded(group: JobSourceGroup) {
-    return expandedGroups[group.key] ?? group.jobs.length > 0;
+    return expandedGroups[group.key] ?? false;
   }
 
   function toggleGroup(group: JobSourceGroup) {
