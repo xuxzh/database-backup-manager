@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import type { BackupJob, BackupRun, BackupRunLog, DatabaseConnection, BackupTarget } from "@/types/api";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
-import { AlertCircle, ChevronDown, ChevronRight, ListChecks, Play } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronRight, Copy, ListChecks, Play } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
@@ -90,6 +90,7 @@ export function JobsPanel({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [runDetailsOpen, setRunDetailsOpen] = useState(false);
   const targetNames = useMemo(() => mapNames(targets), [targets]);
   const activeJobName = activeRun ? jobs.find((job) => job.id === activeRun.backupJobId)?.name : null;
   const jobGroups = useMemo<JobSourceGroup[]>(() => {
@@ -114,6 +115,10 @@ export function JobsPanel({
 
     return groups;
   }, [jobs, sources]);
+
+  useEffect(() => {
+    if (activeRun) setRunDetailsOpen(true);
+  }, [activeRun?.id]);
 
   function validateForm(form: FormData): boolean {
     const errors: Record<string, string> = {};
@@ -295,53 +300,13 @@ export function JobsPanel({
     );
   }
 
+  function copyRemotePath() {
+    if (!activeRun?.remotePath || !navigator.clipboard) return;
+    void navigator.clipboard.writeText(activeRun.remotePath);
+  }
+
   return (
     <section className="panel">
-      {activeRun && (
-        <Card className="active-run-card" data-state={activeRun.status.toLowerCase()}>
-          <CardHeader>
-            <div className="active-run-heading">
-              <div>
-                <CardTitle>本次手动执行</CardTitle>
-                <CardDescription>
-                  {activeJobName || activeRun.backupJobId} · {formatDate(activeRun.startedAt)}
-                </CardDescription>
-              </div>
-              <StatusBadge status={activeRun.status} />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="active-run-grid">
-              <div>
-                <span>当前阶段</span>
-                <strong>{stageLabel(activeRun.stage)}</strong>
-              </div>
-              <div>
-                <span>耗时</span>
-                <strong>{formatDuration(activeRun.durationMs) || runningDuration(activeRun)}</strong>
-              </div>
-              <div>
-                <span>备份文件</span>
-                <strong>{activeRun.archiveFileName || "生成中"}</strong>
-              </div>
-              <div>
-                <span>远端路径</span>
-                <strong>{activeRun.remotePath || "等待上传"}</strong>
-              </div>
-            </div>
-            <DismissibleAlert message={activeRun.errorMessage || ""} />
-            <div className="active-run-footer">
-              <div className="active-run-log">
-                <ListChecks className="size-4" />
-                <span>{latestRunLogText(activeRunLogs)}</span>
-              </div>
-              <Button type="button" size="sm" variant="outline" onClick={() => onViewRun(activeRun.id)}>
-                查看完整日志
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
       {(!sources.length || !targets.length) && (
         <Alert>
           <div className="preflight-alert">
@@ -474,6 +439,69 @@ export function JobsPanel({
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(activeRun) && runDetailsOpen} onOpenChange={setRunDetailsOpen}>
+        {activeRun && (
+          <DialogContent className="active-run-dialog" data-state={activeRun.status.toLowerCase()} aria-describedby="active-run-description">
+            <DialogHeader className="active-run-dialog-header">
+              <div className="active-run-title-block">
+                <DialogTitle>本次手动执行</DialogTitle>
+                <DialogDescription id="active-run-description">
+                  {activeJobName || activeRun.backupJobId} · {formatDate(activeRun.startedAt)}
+                </DialogDescription>
+              </div>
+              <StatusBadge status={activeRun.status} />
+            </DialogHeader>
+            <ScrollArea className="active-run-scroll">
+              <div className="active-run-dialog-body">
+                <div className="active-run-grid">
+                  <div>
+                    <span>当前阶段</span>
+                    <strong>{stageLabel(activeRun.stage)}</strong>
+                  </div>
+                  <div>
+                    <span>耗时</span>
+                    <strong>{formatDuration(activeRun.durationMs) || runningDuration(activeRun)}</strong>
+                  </div>
+                  <div>
+                    <span>备份文件</span>
+                    <strong>{activeRun.archiveFileName || "生成中"}</strong>
+                  </div>
+                  <div className="active-run-path-item">
+                    <span>远端路径</span>
+                    <strong>{activeRun.remotePath || "等待上传"}</strong>
+                    {activeRun.remotePath && (
+                      <Button type="button" size="sm" variant="outline" onClick={copyRemotePath}>
+                        <Copy className="size-4" />
+                        复制路径
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <DismissibleAlert message={activeRun.errorMessage || ""} />
+                <div className="active-run-footer">
+                  <div className="active-run-log">
+                    <ListChecks className="size-4" />
+                    <span>{latestRunLogText(activeRunLogs)}</span>
+                  </div>
+                  <div className="active-run-actions">
+                    {isRunInProgress(activeRun) && (
+                      <DialogClose asChild>
+                        <Button type="button" size="sm" variant="outline">
+                          后台执行
+                        </Button>
+                      </DialogClose>
+                    )}
+                    <Button type="button" size="sm" variant="outline" onClick={() => onViewRun(activeRun.id)}>
+                      查看完整日志
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
+          </DialogContent>
+        )}
+      </Dialog>
 
       <Dialog open={open} onOpenChange={resetDialog}>
         <DialogContent className="max-w-4xl">

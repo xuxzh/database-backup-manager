@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { JobsPanel } from "../JobsPanel";
-import type { BackupJob, BackupTarget, DatabaseConnection } from "@/types/api";
+import type { BackupJob, BackupRun, BackupRunLog, BackupTarget, DatabaseConnection } from "@/types/api";
 
 const source: DatabaseConnection = {
   id: "source-1",
@@ -56,6 +56,37 @@ const job: BackupJob = {
   createdAt: "2026-05-21T00:00:00Z",
   updatedAt: "2026-05-21T00:00:00Z",
 };
+
+const activeRun: BackupRun = {
+  id: "run-1",
+  backupJobId: "job-1",
+  runType: "scheduled",
+  status: "Running",
+  stage: "upload",
+  startedAt: "2026-05-25T02:38:17Z",
+  finishedAt: null,
+  durationMs: null,
+  rawFileName: null,
+  archiveFileName: "analytics_2026-05-25_023817.sql.gz",
+  fileSize: null,
+  checksum: null,
+  remotePath: "/data/backups/scheduled/analytics/2026-05-25/analytics_2026-05-25_023817.sql.gz",
+  fileDeleted: false,
+  fileDeletedAt: null,
+  errorMessage: null,
+  createdAt: "2026-05-25T02:38:17Z",
+};
+
+const activeRunLogs: BackupRunLog[] = [
+  {
+    id: "log-1",
+    backupRunId: "run-1",
+    timestamp: "2026-05-25T02:38:20Z",
+    level: "INFO",
+    stage: "upload",
+    message: "正在上传备份文件",
+  },
+];
 
 describe("JobsPanel", () => {
   it("groups backup jobs by database source", () => {
@@ -243,5 +274,34 @@ describe("JobsPanel", () => {
     expect(screen.getByPlaceholderText("业务库名")).toHaveValue("offline_app");
     expect(screen.getByText("手动备份数据源需手动输入数据库名。")).toBeInTheDocument();
     expect(onLoadSourceDatabases).not.toHaveBeenCalled();
+  });
+
+  it("shows the manual run details in a responsive dialog instead of an inline card", () => {
+    render(
+      <TooltipProvider>
+        <JobsPanel
+          activeRun={activeRun}
+          activeRunLogs={activeRunLogs}
+          isSubmitting={false}
+          jobs={[job]}
+          sources={[source]}
+          targets={[target]}
+          onDelete={vi.fn()}
+          onGoToSources={vi.fn()}
+          onGoToTargets={vi.fn()}
+          onLoadSourceDatabases={vi.fn()}
+          onRun={vi.fn()}
+          onSubmit={vi.fn()}
+          onViewRun={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "本次手动执行" });
+    expect(dialog).toHaveClass("active-run-dialog");
+    expect(dialog).toHaveTextContent("分析库备份");
+    expect(dialog).toHaveTextContent("正在上传备份文件");
+    expect(dialog.querySelector(".active-run-grid")).toBeInTheDocument();
+    expect(document.querySelector(".panel > .active-run-card")).not.toBeInTheDocument();
   });
 });
