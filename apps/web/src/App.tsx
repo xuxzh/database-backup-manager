@@ -343,9 +343,10 @@ function AppContent() {
   async function handleManualUpload(event: FormEvent<HTMLFormElement>): SubmitResult {
     event.preventDefault();
     if (!token) return false;
+    const formElement = event.currentTarget;
     setIsSubmitting(true);
     setError("");
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
       const run = await uploadManualBackup(token, form);
       setActiveRunId(run.id);
@@ -355,7 +356,7 @@ function AppContent() {
         ...current,
         runs: [run, ...current.runs.filter((item) => item.id !== run.id)],
       }));
-      event.currentTarget.reset();
+      formElement.reset();
       toast.info("手动上传已提交，正在等待执行结果");
       await refresh();
       navigate({ to: "/runs", search: { runId: run.id } });
