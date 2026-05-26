@@ -217,17 +217,17 @@ describe("RunsPanel", () => {
     expect(screen.getByRole("row", { name: /自动备份.*完成/ })).toBeInTheDocument();
   });
 
-  it("shows remote file actions for successful backup runs", () => {
+  it("shows only download actions for successful backup runs", () => {
     const onDeleteFile = vi.fn();
     const onDownloadFile = vi.fn();
     render(<RunsPanelHarness onDeleteFile={onDeleteFile} onDownloadFile={onDownloadFile} onLoadLogs={vi.fn()} />);
 
     expandFirstRunGroup();
     fireEvent.click(screen.getByRole("button", { name: "下载备份文件" }));
-    fireEvent.click(screen.getByRole("button", { name: "删除备份文件" }));
 
     expect(onDownloadFile).toHaveBeenCalledWith(run);
-    expect(onDeleteFile).toHaveBeenCalledWith(run);
+    expect(screen.queryByRole("button", { name: "删除备份文件" })).not.toBeInTheDocument();
+    expect(onDeleteFile).not.toHaveBeenCalled();
   });
 
   it("marks deleted remote files and disables downloads", () => {

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Check, ChevronDown, ChevronRight, Copy, Download, Pause, Play, Trash2, XCircle } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy, Download, Pause, Play, XCircle } from "lucide-react";
 import { EmptyState } from "@/shared/components/EmptyState";
 import { StatusBadge } from "@/shared/components/StatusBadge";
 import { stageLabel } from "@/shared/formatters/run";
@@ -56,7 +56,6 @@ export function RunsPanel({
   logs,
   runs,
   selectedRunId,
-  onDeleteFile,
   onDownloadFile,
   onLoadLogs,
 }: {
@@ -223,7 +222,6 @@ export function RunsPanel({
 
   function renderRunRow(run: BackupRun) {
     const hasRemoteFile = run.status === "Success" && Boolean(run.remotePath);
-    const canManageFile = hasRemoteFile && !run.fileDeleted;
 
     return (
       <TableRow key={run.id} data-state={selectedRunId === run.id ? "selected" : undefined}>
@@ -252,10 +250,6 @@ export function RunsPanel({
             <Button type="button" size="sm" variant="outline" disabled={!hasRemoteFile || run.fileDeleted} onClick={() => onDownloadFile(run)}>
               <Download className="size-4" />
               下载备份文件
-            </Button>
-            <Button type="button" size="sm" variant="outline" disabled={!canManageFile} onClick={() => onDeleteFile(run)}>
-              <Trash2 className="size-4" />
-              删除备份文件
             </Button>
             <Button
               type="button"
