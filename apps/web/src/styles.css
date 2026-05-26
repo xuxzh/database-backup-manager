@@ -354,7 +354,7 @@ svg {
 }
 
 .run-group-table {
-  min-width: 900px;
+  min-width: 1040px;
 }
 
 .run-job-row {
@@ -370,6 +370,15 @@ svg {
   align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+.run-context-cell {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .run-job-cell button {
@@ -388,13 +397,13 @@ svg {
 }
 
 .run-child-table {
-  min-width: 780px;
+  min-width: 940px;
   table-layout: fixed;
   border-left: 3px solid hsl(215 20% 86%);
 }
 
 .data-table-content .run-child-table {
-  min-width: 780px;
+  min-width: 940px;
 }
 
 .run-child-table th:nth-child(1),
@@ -407,15 +416,20 @@ svg {
   width: 112px;
 }
 
-.run-child-table th:nth-child(3),
-.run-child-table td:nth-child(3),
 .run-child-table th:nth-child(4),
-.run-child-table td:nth-child(4) {
+.run-child-table td:nth-child(4),
+.run-child-table th:nth-child(5),
+.run-child-table td:nth-child(5) {
   width: 168px;
 }
 
-.run-child-table th:nth-child(6),
-.run-child-table td:nth-child(6) {
+.run-child-table th:nth-child(3),
+.run-child-table td:nth-child(3) {
+  width: 220px;
+}
+
+.run-child-table th:nth-child(7),
+.run-child-table td:nth-child(7) {
   width: 300px;
 }
 

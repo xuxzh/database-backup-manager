@@ -18,6 +18,10 @@ function mapNames(items: Array<{ id: string; name: string }>) {
   return Object.fromEntries(items.map((item) => [item.id, item.name]));
 }
 
+function compactText(parts: Array<string | null | undefined>, separator: string) {
+  return parts.filter((part): part is string => Boolean(part?.trim())).join(separator);
+}
+
 type CopyStatus = "idle" | "copied" | "selected" | "failed";
 
 type RunJobGroup = {
@@ -78,6 +82,22 @@ export function RunsPanel({
   const dialogRun = runs.find((run) => run.id === logDialogRunId) ?? null;
   const dialogLogs = selectedRunId === logDialogRunId ? logs : [];
 
+  function runDisplayName(run: BackupRun) {
+    if (run.runType === "manualUpload") return "手动上传";
+    return run.jobName || jobNames[run.backupJobId] || "未知任务";
+  }
+
+  function runContextText(run: BackupRun) {
+    const source = compactText([run.sourceName, run.sourceEndpoint], " ");
+    const target = compactText([run.targetName, run.targetBaseDir], " ");
+    return compactText([source, run.databaseName, target], " / ");
+  }
+
+  function runBackupContent(run: BackupRun) {
+    if (run.runType === "manualUpload") return "手动上传";
+    return compactText([run.databaseName, run.sourceName, run.targetName], " / ") || "未记录";
+  }
+
   const filteredRuns = useMemo(() => {
     return runs.filter((run) => {
       if (filterRunType !== "all" && run.runType !== filterRunType) return false;
@@ -85,13 +105,27 @@ export function RunsPanel({
       if (filterStatus !== "all" && run.status !== filterStatus) return false;
       if (filterSearch) {
         const search = filterSearch.toLowerCase();
-        const matchesError = run.errorMessage?.toLowerCase().includes(search);
-        const matchesStage = run.stage.toLowerCase().includes(search);
-        if (!matchesError && !matchesStage) return false;
+        const searchableText = [
+          run.errorMessage,
+          run.stage,
+          stageLabel(run.stage),
+          runDisplayName(run),
+          run.sourceName,
+          run.sourceType,
+          run.sourceEndpoint,
+          run.databaseName,
+          run.targetName,
+          run.targetType,
+          run.targetBaseDir,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!searchableText.includes(search)) return false;
       }
       return true;
     });
-  }, [runs, filterJobId, filterRunType, filterStatus, filterSearch]);
+  }, [runs, filterJobId, filterRunType, filterStatus, filterSearch, jobNames]);
 
   const runGroups = useMemo<RunJobGroup[]>(() => {
     const runsByJob = new Map<string, BackupRun[]>();
@@ -149,7 +183,12 @@ export function RunsPanel({
 
   function groupDisplayName(group: RunJobGroup) {
     if (group.key === "manualUpload") return "手动上传";
-    return group.job?.name || group.key;
+    return group.runs.find((run) => run.jobName)?.jobName || group.job?.name || "未知任务";
+  }
+
+  function groupContext(group: RunJobGroup) {
+    const runWithContext = group.runs.find((run) => run.sourceName || run.databaseName || run.targetName);
+    return runWithContext ? runContextText(runWithContext) : "";
   }
 
   function latestStartedAt(group: RunJobGroup) {
@@ -183,6 +222,11 @@ export function RunsPanel({
           </div>
         </TableCell>
         <TableCell>{stageLabel(run.stage)}</TableCell>
+        <TableCell>
+          <span className="run-context-cell" title={runContextText(run) || undefined}>
+            {runBackupContent(run)}
+          </span>
+        </TableCell>
         <TableCell>{formatDate(run.startedAt)}</TableCell>
         <TableCell>{formatDate(run.finishedAt)}</TableCell>
         <TableCell>
@@ -260,7 +304,7 @@ export function RunsPanel({
         </Select>
         <Input
           className="w-48"
-          placeholder="搜索错误/阶段"
+          placeholder="搜索任务/数据源/数据库/目标/错误"
           value={filterSearch}
           onChange={(e) => setFilterSearch(e.target.value)}
         />
@@ -285,6 +329,7 @@ export function RunsPanel({
               <TableHeader className="sticky top-0 z-10 bg-muted/45">
                 <TableRow>
                   <TableHead>任务</TableHead>
+                  <TableHead>备份内容</TableHead>
                   <TableHead>运行记录</TableHead>
                   <TableHead>状态概览</TableHead>
                   <TableHead>最近开始</TableHead>
@@ -307,6 +352,11 @@ export function RunsPanel({
                             <span className="font-medium">{groupDisplayName(group)}</span>
                           </div>
                         </TableCell>
+                        <TableCell>
+                          <span className="run-context-cell" title={groupContext(group) || undefined}>
+                            {groupContext(group) || "未记录"}
+                          </span>
+                        </TableCell>
                         <TableCell>{group.runs.length} 条记录</TableCell>
                         <TableCell>
                           <Badge variant={group.runs.some((run) => run.status === "Failed") ? "destructive" : "secondary"}>
@@ -322,13 +372,14 @@ export function RunsPanel({
                       </TableRow>
                       {expanded && (
                         <TableRow aria-label={`${groupDisplayName(group)}运行明细`} className="run-child-row" key={`${group.key}-runs`}>
-                          <TableCell colSpan={5}>
+                          <TableCell colSpan={6}>
                             <div className="run-child-table-scroll">
                               <Table className="run-child-table">
                                 <TableHeader>
                                   <TableRow>
                                     <TableHead>状态</TableHead>
                                     <TableHead>阶段</TableHead>
+                                    <TableHead>备份内容</TableHead>
                                     <TableHead>开始时间</TableHead>
                                     <TableHead>结束时间</TableHead>
                                     <TableHead>错误</TableHead>
@@ -359,7 +410,7 @@ export function RunsPanel({
               <DialogTitle>运行日志</DialogTitle>
               <DialogDescription id="run-log-description">
                 {dialogRun
-                  ? `${dialogRun.runType === "manualUpload" ? "手动上传" : jobNames[dialogRun.backupJobId] || dialogRun.backupJobId} · ${formatDate(dialogRun.startedAt)}`
+                  ? compactText([runDisplayName(dialogRun), dialogRun.databaseName, dialogRun.targetName, formatDate(dialogRun.startedAt)], " · ")
                   : "正在加载运行日志"}
               </DialogDescription>
             </div>

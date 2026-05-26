@@ -359,10 +359,23 @@ impl Repository {
 
     pub async fn create_run(&self, job_id: &str) -> anyhow::Result<BackupRun> {
         let now = Utc::now();
+        let job = self.get_backup_job(job_id).await?;
+        let source = self
+            .get_database_connection(&job.database_connection_id)
+            .await?;
+        let target = self.get_backup_target(&job.backup_target_id).await?;
         let run = BackupRun {
             id: Uuid::new_v4().to_string(),
-            backup_job_id: job_id.to_string(),
+            backup_job_id: job.id.clone(),
             run_type: "scheduled".to_string(),
+            job_name: Some(job.name),
+            source_name: Some(source.name),
+            source_type: Some(source.db_type),
+            source_endpoint: Some(format!("{}:{}", source.host, source.port)),
+            database_name: Some(job.database_name),
+            target_name: Some(target.name),
+            target_type: Some(target.target_type),
+            target_base_dir: Some(target.base_dir),
             status: RunStatus::Pending,
             stage: "prepare".to_string(),
             started_at: now,
@@ -379,12 +392,20 @@ impl Repository {
             created_at: now,
         };
         sqlx::query(
-            "INSERT INTO backup_runs (id, backup_job_id, run_type, status, stage, started_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO backup_runs (id, backup_job_id, run_type, job_name, source_name, source_type, source_endpoint, database_name, target_name, target_type, target_base_dir, status, stage, started_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&run.id)
         .bind(&run.backup_job_id)
         .bind(&run.run_type)
+        .bind(&run.job_name)
+        .bind(&run.source_name)
+        .bind(&run.source_type)
+        .bind(&run.source_endpoint)
+        .bind(&run.database_name)
+        .bind(&run.target_name)
+        .bind(&run.target_type)
+        .bind(&run.target_base_dir)
         .bind(run.status.to_string())
         .bind(&run.stage)
         .bind(run.started_at.to_rfc3339())
@@ -403,6 +424,14 @@ impl Repository {
             id: Uuid::new_v4().to_string(),
             backup_job_id: String::new(),
             run_type: "manualUpload".to_string(),
+            job_name: None,
+            source_name: None,
+            source_type: None,
+            source_endpoint: None,
+            database_name: None,
+            target_name: None,
+            target_type: None,
+            target_base_dir: None,
             status: RunStatus::Pending,
             stage: "prepare".to_string(),
             started_at: now,
@@ -740,6 +769,14 @@ fn row_backup_run(row: sqlx::sqlite::SqliteRow) -> anyhow::Result<BackupRun> {
             .try_get::<Option<String>, _>("backup_job_id")?
             .unwrap_or_default(),
         run_type: row.try_get("run_type")?,
+        job_name: row.try_get("job_name")?,
+        source_name: row.try_get("source_name")?,
+        source_type: row.try_get("source_type")?,
+        source_endpoint: row.try_get("source_endpoint")?,
+        database_name: row.try_get("database_name")?,
+        target_name: row.try_get("target_name")?,
+        target_type: row.try_get("target_type")?,
+        target_base_dir: row.try_get("target_base_dir")?,
         status: parse_status(row.try_get("status")?),
         stage: row.try_get("stage")?,
         started_at: parse_time(row.try_get("started_at")?)?,
@@ -879,7 +916,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_run_persists_backup_job_id_for_file_downloads() {
+    async fn create_run_persists_backup_job_snapshot_for_history_context() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -891,9 +928,9 @@ mod tests {
         let source = repository
             .create_database_connection(
                 UpsertDatabaseConnection {
-                    name: "source".into(),
+                    name: "production source".into(),
                     db_type: "mysql".into(),
-                    host: "db".into(),
+                    host: "db.internal".into(),
                     port: 3306,
                     username: "backup".into(),
                     password: String::new(),
@@ -917,7 +954,7 @@ mod tests {
         let target = repository
             .create_backup_target(
                 UpsertBackupTarget {
-                    name: "target".into(),
+                    name: "primary target".into(),
                     target_type: "ssh".into(),
                     host: "backup".into(),
                     port: 22,
@@ -933,7 +970,7 @@ mod tests {
             .unwrap();
         let job = repository
             .create_backup_job(UpsertBackupJob {
-                name: "job".into(),
+                name: "nightly production".into(),
                 database_connection_id: source.id,
                 database_name: "app".into(),
                 backup_target_id: target.id,
@@ -950,6 +987,47 @@ mod tests {
 
         let saved = repository.get_run(&run.id).await.unwrap();
         assert_eq!(saved.backup_job_id, job.id);
+        assert_eq!(saved.job_name.as_deref(), Some("nightly production"));
+        assert_eq!(saved.source_name.as_deref(), Some("production source"));
+        assert_eq!(saved.source_type.as_deref(), Some("mysql"));
+        assert_eq!(saved.source_endpoint.as_deref(), Some("db.internal:3306"));
+        assert_eq!(saved.database_name.as_deref(), Some("app"));
+        assert_eq!(saved.target_name.as_deref(), Some("primary target"));
+        assert_eq!(saved.target_type.as_deref(), Some("ssh"));
+        assert_eq!(saved.target_base_dir.as_deref(), Some("/backups"));
+    }
+
+    #[tokio::test]
+    async fn get_run_allows_missing_backup_job_snapshot_for_existing_history() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO backup_runs (id, backup_job_id, run_type, status, stage, started_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind("legacy-run")
+        .bind("legacy-job")
+        .bind("scheduled")
+        .bind("Success")
+        .bind("done")
+        .bind("2026-05-22T00:33:30Z")
+        .bind("2026-05-22T00:33:30Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let repository = Repository::new(pool);
+        let saved = repository.get_run("legacy-run").await.unwrap();
+        assert_eq!(saved.backup_job_id, "legacy-job");
+        assert_eq!(saved.job_name, None);
+        assert_eq!(saved.source_name, None);
+        assert_eq!(saved.database_name, None);
+        assert_eq!(saved.target_name, None);
     }
 
     #[tokio::test]

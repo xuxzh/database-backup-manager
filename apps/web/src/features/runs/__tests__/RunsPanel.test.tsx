@@ -33,6 +33,14 @@ const run: BackupRun = {
   id: "run-1",
   backupJobId: "job-1",
   runType: "scheduled",
+  jobName: "生产库备份",
+  sourceName: "生产数据源",
+  sourceType: "mysql",
+  sourceEndpoint: "db.internal:3306",
+  databaseName: "app",
+  targetName: "备份服务器",
+  targetType: "ssh",
+  targetBaseDir: "/backups",
   status: "Success",
   stage: "done",
   startedAt: "2026-05-22T00:33:30Z",
@@ -63,6 +71,11 @@ const reportingRun: BackupRun = {
   ...run,
   id: "run-3",
   backupJobId: "job-2",
+  jobName: "报表库备份",
+  sourceName: "报表数据源",
+  sourceEndpoint: "reporting.internal:5432",
+  databaseName: "reporting",
+  targetName: "报表备份目标",
   status: "Running",
   stage: "compress",
   startedAt: "2026-05-23T00:33:30Z",
@@ -134,6 +147,7 @@ describe("RunsPanel", () => {
     );
 
     expect(screen.getByRole("row", { name: /生产库备份.*2 条记录.*1 成功.*1 失败/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /生产库备份.*生产数据源.*app.*备份服务器/ })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /报表库备份.*1 条记录.*1 执行中/ })).toBeInTheDocument();
     expect(screen.queryByRole("row", { name: /Success.*完成/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("row", { name: /Failed.*上传.*上传失败/ })).not.toBeInTheDocument();
@@ -142,6 +156,44 @@ describe("RunsPanel", () => {
 
     expect(screen.getByRole("row", { name: /Success.*完成/ })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /Failed.*上传.*上传失败/ })).toBeInTheDocument();
+  });
+
+  it("uses run snapshots when the current job is missing", () => {
+    render(
+      <RunsPanel
+        jobs={[]}
+        logs={[]}
+        runs={[run]}
+        selectedRunId={null}
+        onDeleteFile={vi.fn()}
+        onDownloadFile={vi.fn()}
+        onLoadLogs={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("row", { name: /生产库备份.*生产数据源.*app.*备份服务器/ })).toBeInTheDocument();
+    expect(screen.queryByText("job-1")).not.toBeInTheDocument();
+  });
+
+  it("shows backup context in run details and searches snapshot fields", () => {
+    render(
+      <RunsPanel
+        jobs={[]}
+        logs={[]}
+        runs={[run]}
+        selectedRunId={null}
+        onDeleteFile={vi.fn()}
+        onDownloadFile={vi.fn()}
+        onLoadLogs={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("搜索任务/数据源/数据库/目标/错误"), { target: { value: "备份服务器" } });
+    expect(screen.getAllByText("1 条记录").length).toBeGreaterThan(0);
+
+    expandFirstRunGroup();
+    expect(screen.getAllByRole("columnheader", { name: "备份内容" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("row", { name: /app.*生产数据源.*备份服务器/ })).toBeInTheDocument();
   });
 
   it("groups manual upload runs separately from scheduled jobs", () => {
@@ -215,7 +267,7 @@ describe("RunsPanel", () => {
 
     expect(css).toMatch(/\.run-child-table\s*\{[^}]*table-layout:\s*fixed/s);
     expect(css).toMatch(/\.run-child-table-scroll\s*\{[^}]*overflow-x:\s*auto/s);
-    expect(css).toMatch(/\.data-table-content\s+\.run-child-table\s*\{[^}]*min-width:\s*780px/s);
+    expect(css).toMatch(/\.data-table-content\s+\.run-child-table\s*\{[^}]*min-width:\s*940px/s);
     expect(css).toMatch(/@media\s*\(max-width:\s*780px\)[\s\S]*\.run-child-table-scroll\s*\{[^}]*width:\s*calc\(100vw - 36px\)/s);
     expect(css).toMatch(/\.run-child-table\s+\.error-cell\s*\{/);
   });

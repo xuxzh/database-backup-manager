@@ -143,6 +143,14 @@ export type BackupRun = {
   id: string;
   backupJobId: string;
   runType: RunType;
+  jobName: string | null;
+  sourceName: string | null;
+  sourceType: string | null;
+  sourceEndpoint: string | null;
+  databaseName: string | null;
+  targetName: string | null;
+  targetType: string | null;
+  targetBaseDir: string | null;
   status: RunStatus;
   stage: string;
   startedAt: string;
