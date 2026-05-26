@@ -129,7 +129,7 @@ function RunsPanelHarness({
 }
 
 function expandFirstRunGroup() {
-  fireEvent.click(screen.getAllByRole("button", { name: "展开明细" })[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: "展开" })[0]);
 }
 
 describe("RunsPanel", () => {

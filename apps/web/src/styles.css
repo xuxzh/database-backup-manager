@@ -386,6 +386,13 @@ svg {
   padding-inline: 8px 10px;
 }
 
+.run-status-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .run-child-row > td {
   background: hsl(210 40% 99%);
   padding: 0;

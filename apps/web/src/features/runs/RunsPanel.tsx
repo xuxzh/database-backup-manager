@@ -198,15 +198,27 @@ export function RunsPanel({
     }, null);
   }
 
-  function statusSummary(group: RunJobGroup) {
+  function statusCounts(group: RunJobGroup) {
     const successCount = group.runs.filter((run) => run.status === "Success").length;
     const failedCount = group.runs.filter((run) => run.status === "Failed").length;
     const runningCount = group.runs.filter((run) => run.status === "Pending" || run.status === "Running").length;
-    const parts = [];
-    if (successCount) parts.push(`${successCount} 成功`);
-    if (failedCount) parts.push(`${failedCount} 失败`);
-    if (runningCount) parts.push(`${runningCount} 执行中`);
-    return parts.length ? parts.join(" / ") : "无状态";
+    return { successCount, failedCount, runningCount };
+  }
+
+  function renderStatusSummary(group: RunJobGroup) {
+    const { successCount, failedCount, runningCount } = statusCounts(group);
+
+    if (!successCount && !failedCount && !runningCount) {
+      return <Badge variant="secondary">无状态</Badge>;
+    }
+
+    return (
+      <div className="run-status-summary">
+        {successCount > 0 && <Badge variant="success">{successCount} 成功</Badge>}
+        {failedCount > 0 && <Badge variant="destructive">{failedCount} 失败</Badge>}
+        {runningCount > 0 && <Badge variant="info">{runningCount} 执行中</Badge>}
+      </div>
+    );
   }
 
   function renderRunRow(run: BackupRun) {
@@ -333,7 +345,6 @@ export function RunsPanel({
                   <TableHead>运行记录</TableHead>
                   <TableHead>状态概览</TableHead>
                   <TableHead>最近开始</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -358,21 +369,12 @@ export function RunsPanel({
                           </span>
                         </TableCell>
                         <TableCell>{group.runs.length} 条记录</TableCell>
-                        <TableCell>
-                          <Badge variant={group.runs.some((run) => run.status === "Failed") ? "destructive" : "secondary"}>
-                            {statusSummary(group)}
-                          </Badge>
-                        </TableCell>
+                        <TableCell>{renderStatusSummary(group)}</TableCell>
                         <TableCell>{formatDate(latestStartedAt(group))}</TableCell>
-                        <TableCell className="text-right">
-                          <Button type="button" size="sm" variant="outline" onClick={() => toggleGroup(group)}>
-                            {expanded ? "收起明细" : "展开明细"}
-                          </Button>
-                        </TableCell>
                       </TableRow>
                       {expanded && (
                         <TableRow aria-label={`${groupDisplayName(group)}运行明细`} className="run-child-row" key={`${group.key}-runs`}>
-                          <TableCell colSpan={6}>
+                          <TableCell colSpan={5}>
                             <div className="run-child-table-scroll">
                               <Table className="run-child-table">
                                 <TableHeader>
