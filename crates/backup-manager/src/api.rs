@@ -668,12 +668,7 @@ async fn run_file_context(
             .map_err(|_| ApiError::not_found("手动上传记录不存在"))?
             .backup_target_id
     } else {
-        let job = state
-            .repository
-            .get_backup_job(&run.backup_job_id)
-            .await
-            .map_err(|_| ApiError::not_found("备份任务不存在"))?;
-        job.backup_target_id
+        scheduled_run_target_id(state, &run, &remote_path).await?
     };
     let target = state
         .repository
@@ -681,6 +676,48 @@ async fn run_file_context(
         .await
         .map_err(|_| ApiError::not_found("备份目标不存在"))?;
     Ok((run, target, remote_path, archive_file_name))
+}
+
+async fn scheduled_run_target_id(
+    state: &AppState,
+    run: &BackupRun,
+    remote_path: &str,
+) -> Result<String, ApiError> {
+    if !run.backup_job_id.trim().is_empty() {
+        let job = state
+            .repository
+            .get_backup_job(&run.backup_job_id)
+            .await
+            .map_err(|_| ApiError::not_found("备份任务不存在"))?;
+        return Ok(job.backup_target_id);
+    }
+
+    let targets = state.repository.list_backup_targets().await?;
+    let matching_targets = targets
+        .into_iter()
+        .filter(|target| remote_path_is_under_base_dir(remote_path, &target.base_dir))
+        .map(|target| target.id)
+        .collect::<Vec<_>>();
+
+    match matching_targets.as_slice() {
+        [target_id] => Ok(target_id.clone()),
+        [] => Err(ApiError::not_found(
+            "备份任务不存在，且无法从远端路径匹配备份目标",
+        )),
+        _ => Err(ApiError::conflict("无法唯一确定运行记录对应的备份目标")),
+    }
+}
+
+fn remote_path_is_under_base_dir(remote_path: &str, base_dir: &str) -> bool {
+    let remote_path = remote_path.trim().trim_end_matches('/');
+    let base_dir = base_dir.trim().trim_end_matches('/');
+    if remote_path.is_empty() || base_dir.is_empty() {
+        return false;
+    }
+    remote_path == base_dir
+        || remote_path
+            .strip_prefix(base_dir)
+            .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 #[derive(Debug)]
@@ -842,6 +879,24 @@ mod tests {
         assert!(value.get("adminPassword").is_none());
         assert!(value.get("appSecret").is_none());
         assert!(value.get("databasePath").is_none());
+    }
+
+    #[test]
+    fn remote_path_matches_only_files_under_target_base_dir() {
+        assert!(remote_path_is_under_base_dir(
+            "/backups/job/run/app.sql.gz",
+            "/backups"
+        ));
+        assert!(remote_path_is_under_base_dir(
+            "~/backups/job/run/app.sql.gz",
+            "~/backups/"
+        ));
+        assert!(!remote_path_is_under_base_dir(
+            "/backups-other/job/run/app.sql.gz",
+            "/backups"
+        ));
+        assert!(!remote_path_is_under_base_dir("", "/backups"));
+        assert!(!remote_path_is_under_base_dir("/backups/app.sql.gz", ""));
     }
 
     #[tokio::test]

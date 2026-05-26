@@ -383,7 +383,7 @@ impl Repository {
              VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&run.id)
-        .bind(Option::<String>::None)
+        .bind(&run.backup_job_id)
         .bind(&run.run_type)
         .bind(run.status.to_string())
         .bind(&run.stage)
@@ -876,6 +876,80 @@ mod tests {
         let updated = repository.get_run(&run.id).await.unwrap();
         assert!(updated.file_deleted);
         assert!(updated.file_deleted_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn create_run_persists_backup_job_id_for_file_downloads() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+        let repository = Repository::new(pool);
+        let source = repository
+            .create_database_connection(
+                UpsertDatabaseConnection {
+                    name: "source".into(),
+                    db_type: "mysql".into(),
+                    host: "db".into(),
+                    port: 3306,
+                    username: "backup".into(),
+                    password: String::new(),
+                    database_name: Some("app".into()),
+                    backup_mode: "automatic".into(),
+                    execution_mode: "local".into(),
+                    remote_host: None,
+                    remote_port: None,
+                    remote_username: None,
+                    remote_auth_method: None,
+                    remote_secret: None,
+                    remote_tool_path: None,
+                    remote_working_dir: None,
+                    config_json: json!({}),
+                },
+                "encrypted".into(),
+                None,
+            )
+            .await
+            .unwrap();
+        let target = repository
+            .create_backup_target(
+                UpsertBackupTarget {
+                    name: "target".into(),
+                    target_type: "ssh".into(),
+                    host: "backup".into(),
+                    port: 22,
+                    username: "backup".into(),
+                    auth_method: "password".into(),
+                    secret: String::new(),
+                    base_dir: "/backups".into(),
+                    config_json: json!({}),
+                },
+                "encrypted".into(),
+            )
+            .await
+            .unwrap();
+        let job = repository
+            .create_backup_job(UpsertBackupJob {
+                name: "job".into(),
+                database_connection_id: source.id,
+                database_name: "app".into(),
+                backup_target_id: target.id,
+                schedule: "0 0 2 * * *".into(),
+                compression: "gzip".into(),
+                remote_retention_days: 30,
+                local_retention_days: 7,
+                enabled: true,
+            })
+            .await
+            .unwrap();
+
+        let run = repository.create_run(&job.id).await.unwrap();
+
+        let saved = repository.get_run(&run.id).await.unwrap();
+        assert_eq!(saved.backup_job_id, job.id);
     }
 
     #[tokio::test]
