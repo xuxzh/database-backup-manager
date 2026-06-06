@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { ShieldCheck } from "lucide-react";
+import { LogIn, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,7 @@ export function LoginPage({
               />
             </Field>
             <Button type="submit" disabled={isSubmitting}>
+              <LogIn aria-hidden="true" />
               {isSubmitting ? "登录中..." : "登录"}
             </Button>
           </form>
